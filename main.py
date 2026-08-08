@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QVBoxLayout, QWidget,
 )
 
-from asr_engine import ASRWorker
+from asr_engine import ASRWorker, WhisperModelProvider
 from audio_pipeline import AudioCaptureWorker, SpeechBufferWorker
 from config import AppConfig, PerformanceMode
 from logger import get_output_path, log_print
@@ -37,7 +37,26 @@ class SpeechController:
         self.stop_event = Event()
         self.threads: list[Thread] = []
         self.translation_queue: Queue | None = None
+        self.model_provider = WhisperModelProvider()
+        self.preload_thread: Thread | None = None
         self.running = False
+
+    def preload_model(self) -> None:
+        """Warm Whisper after the window opens instead of after speech begins."""
+        if self.preload_thread is not None:
+            return
+
+        def load() -> None:
+            try:
+                self.signals.status_changed.emit("Loading speech model…")
+                self.model_provider.get(AppConfig())
+                self.signals.status_changed.emit("Ready")
+            except Exception as exc:
+                log_print(f"Model preload error: {exc}")
+                self.signals.error.emit(str(exc))
+
+        self.preload_thread = Thread(target=load, name="whisper-preload", daemon=True)
+        self.preload_thread.start()
 
     def start(self, config: AppConfig) -> None:
         if self.running:
@@ -49,7 +68,8 @@ class SpeechController:
         capture = AudioCaptureWorker(config, audio_queue, self.stop_event,
                                      self.signals.error.emit)
         buffer = SpeechBufferWorker(config, audio_queue, asr_queue, self.stop_event)
-        asr = ASRWorker(config, asr_queue, self.stop_event, self.signals)
+        asr = ASRWorker(config, asr_queue, self.stop_event, self.signals,
+                        self.model_provider)
         self.threads = [
             Thread(target=capture.run, name="audio-capture", daemon=True),
             Thread(target=buffer.run, name="speech-buffer", daemon=True),
@@ -104,6 +124,7 @@ class MainWindow(QWidget):
         self.final_history: list[str] = []
         self._build_ui()
         self._connect_signals()
+        self.controller.preload_model()
 
     def _build_ui(self) -> None:
         self.status = QLabel("Ready")

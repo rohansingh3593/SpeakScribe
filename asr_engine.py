@@ -2,7 +2,7 @@
 
 from collections import deque
 from queue import Empty, Queue
-from threading import Event
+from threading import Event, Lock
 import time
 
 from faster_whisper import WhisperModel
@@ -39,6 +39,11 @@ class WhisperEngine:
 
     def transcribe(self, job: ASRJob, context: str) -> tuple[str, str]:
         profile = self.config.profile
+        # Repeated partials must be inexpensive. The selected profile is retained
+        # for final correction, while live hypotheses use deterministic greedy
+        # decoding to keep CPU fallback latency close to real time.
+        beam_size = profile.beam_size if job.final else 1
+        best_of = profile.best_of if job.final else 1
         vocabulary = ", ".join(self.config.vocabulary)
         prompt = (
             "Speech may be Hindi (हिन्दी), English, or naturally mixed Hinglish. "
@@ -50,8 +55,8 @@ class WhisperEngine:
         language = None if self.config.language_mode == "auto" else self.config.language_mode
         segments, info = self.model.transcribe(
             prepare_audio_for_asr(job.audio), language=language, task="transcribe",
-            beam_size=profile.beam_size,
-            best_of=profile.best_of, temperature=profile.temperature,
+            beam_size=beam_size,
+            best_of=best_of, temperature=profile.temperature,
             initial_prompt=prompt, condition_on_previous_text=False,
             vad_filter=self.config.vad_filter, word_timestamps=False,
         )
@@ -66,22 +71,53 @@ class WhisperEngine:
         return text, mode
 
 
+class WhisperModelProvider:
+    """Thread-safe owner that loads exactly one Whisper engine per application."""
+
+    def __init__(self):
+        self._engine: WhisperEngine | None = None
+        self._lock = Lock()
+
+    def get(self, config: AppConfig) -> WhisperEngine:
+        with self._lock:
+            if self._engine is None:
+                self._engine = WhisperEngine(config)
+            else:
+                # Model weights/device stay cached; lightweight decode and text
+                # settings may change between listening sessions.
+                self._engine.config = config
+            return self._engine
+
+
 class ASRWorker:
-    def __init__(self, config: AppConfig, queue: Queue, stop_event: Event, signals):
+    def __init__(self, config: AppConfig, queue: Queue, stop_event: Event, signals,
+                 model_provider: WhisperModelProvider):
         self.config, self.queue, self.stop_event, self.signals = config, queue, stop_event, signals
+        self.model_provider = model_provider
         self.history: deque[str] = deque(maxlen=config.context_sentences)
 
     def run(self) -> None:
         try:
             self.signals.status_changed.emit("Loading speech model…")
-            engine = WhisperEngine(self.config)
+            engine = self.model_provider.get(self.config)
             self.signals.status_changed.emit("🎤 Listening")
             process = Process()
-            while not self.stop_event.is_set() or not self.queue.empty():
+            stop_empty_since = None
+            while True:
                 try:
                     job = self.queue.get(timeout=0.1)
                 except Empty:
+                    if not self.stop_event.is_set():
+                        continue
+                    if stop_empty_since is None:
+                        stop_empty_since = time.monotonic()
+                    # SpeechBufferWorker may still be draining raw audio and
+                    # enqueueing the stop-time final. Give it a bounded handoff
+                    # window rather than racing out on the first empty poll.
+                    if time.monotonic() - stop_empty_since >= 0.75:
+                        break
                     continue
+                stop_empty_since = None
                 started = time.monotonic()
                 text, language = engine.transcribe(job, " ".join(self.history))
                 elapsed = time.monotonic() - started

@@ -478,6 +478,11 @@ Accepted speech is DC-centered and receives capped gain before Whisper inference
 silence still remains excluded by the RMS detector. Detection logs include the
 measured RMS value so the thresholds can be tuned for a particular microphone.
 
+Whisper begins loading in a background thread as soon as the GUI opens and the
+same model instance is reused across Start/Stop cycles. Live partials run every
+`0.5` seconds with greedy decoding; the selected Fast/Balanced/Accurate profile is
+applied to final correction so partial speed does not sacrifice final accuracy.
+
 ---
 
 # 🚀 Running the Application

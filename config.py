@@ -46,9 +46,9 @@ class AppConfig:
     silence_duration: float = 0.55
     min_speech_duration: float = 0.20
     pre_speech_duration: float = 0.20
-    partial_interval: float = 0.70
+    partial_interval: float = 0.50
     max_utterance_seconds: float = 15.0
-    rolling_window_seconds: float = 7.0
+    rolling_window_seconds: float = 5.0
     overlap_seconds: float = 0.35
     max_audio_queue: int = 100
     max_asr_queue: int = 2
