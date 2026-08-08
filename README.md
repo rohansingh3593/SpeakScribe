@@ -450,6 +450,19 @@ sentencepiece
 
 Exact dependency versions should be maintained in `requirements.txt`.
 
+## Running tests
+
+From the `SpeakScribe` directory, run:
+
+```bash
+python -m pytest
+```
+
+The included `pytest.ini` explicitly adds the repository root to Python's import
+path. This keeps top-level application modules such as `audio_pipeline` and
+`text_processing` importable with both `pytest` and `python -m pytest`, including
+pytest 9 on Windows.
+
 ---
 
 # 🚀 Running the Application
