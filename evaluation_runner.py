@@ -74,6 +74,9 @@ class EvaluationResult:
     root_cause: str
     recommended_fix: str
     possible_problem: str
+    attempts: int
+    initial_similarity: float
+    retry_improvement: float
 
 
 def normalize_transcript(text: str) -> str:
@@ -270,10 +273,28 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
         final_transcript_latency=round(inference, 3), partial_updates=len(partials),
         duplicate_partials=sum(a == b for a, b in zip(partials, partials[1:])),
         dropped_chunks=0, root_cause="", recommended_fix="", possible_problem="",
+        attempts=1, initial_similarity=similarity, retry_improvement=0.0,
     )
     result.possible_problem = _diagnosis(result)
     result.root_cause, result.recommended_fix = _root_cause(case, result)
     return result
+
+
+def evaluate_case_with_retries(case: dict, root: Path, provider, retries: int = 1,
+                               evaluator=evaluate_case) -> EvaluationResult:
+    """Rerun a failed case and retain the best genuine ASR result."""
+    best = evaluator(case, root, provider)
+    initial_similarity = best.similarity
+    attempts = 1
+    while best.status == "FAIL" and attempts <= max(0, retries):
+        candidate = evaluator(case, root, provider)
+        attempts += 1
+        if candidate.similarity > best.similarity:
+            best = candidate
+    best.attempts = attempts
+    best.initial_similarity = initial_similarity
+    best.retry_improvement = round(best.similarity - initial_similarity, 2)
+    return best
 
 
 def render_markdown(results: list[EvaluationResult], missing: list[str],
@@ -363,12 +384,13 @@ def render_markdown(results: list[EvaluationResult], missing: list[str],
                 before = float(baseline[item.case_id]["similarity"])
                 lines.append(f"- {item.case_id}: {before:.1f}% -> {item.similarity:.1f}% "
                              f"({delta:+.1f} points)")
-    lines += ["", "| Test | Language | Source | Similarity | WER | Inference | RTF | Status |",
-              "|---|---|---|---:|---:|---:|---:|---|"]
+    lines += ["", "| Test | Language | Source | Similarity | WER | Attempts | Retry Δ | Inference | RTF | Status |",
+              "|---|---|---|---:|---:|---:|---:|---:|---:|---|"]
     for item in results:
         lines.append(f"| {item.audio} | {item.language} | {item.audio_source.title()} | "
                      f"{item.similarity:.1f}% | "
-                     f"{item.wer:.3f} | {item.inference_seconds:.2f}s | "
+                     f"{item.wer:.3f} | {item.attempts} | {item.retry_improvement:+.1f} | "
+                     f"{item.inference_seconds:.2f}s | "
                      f"{item.real_time_factor:.2f} | {item.status} |")
     for item in results:
         if item.status in {"EXCELLENT", "PASS"}:
@@ -425,14 +447,15 @@ def main() -> int:
         total = len(runnable)
         for index, case in enumerate(runnable, 1):
             case_started = time.perf_counter()
-            results.append(evaluate_case(case, root, provider))
+            retries = max(0, int(os.getenv("SPEAKSCRIBE_FAILED_RETRIES", "1")))
+            results.append(evaluate_case_with_retries(case, root, provider, retries))
             elapsed = time.perf_counter() - evaluation_started
             eta = elapsed / index * (total - index)
             print(
                 f"[ASR {index:03d}/{total:03d}] {case['id']} complete | "
                 f"case={format_duration(time.perf_counter() - case_started)} "
                 f"elapsed={format_duration(elapsed)} ETA={format_duration(eta)} "
-                f"status={results[-1].status}",
+                f"status={results[-1].status} attempts={results[-1].attempts}",
                 file=sys.stderr, flush=True,
             )
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)

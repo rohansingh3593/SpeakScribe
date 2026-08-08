@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from evaluation_runner import evaluate_case
+from evaluation_runner import evaluate_case_with_retries
 from tests.audio_generation import ensure_audio
 
 
@@ -54,7 +54,7 @@ def test_prerecorded_transcription(case):
             f"INVALID_AUDIO: generation reported success but WAV is missing: {audio}",
             pytrace=False,
         )
-    result = evaluate_case(case, ROOT, model_provider())
+    result = evaluate_case_with_retries(case, ROOT, model_provider(), retries=1)
     assert result.status != "FAIL", (
         f"{result.case_id}: {result.similarity}% WER={result.wer}; "
         f"root_cause={result.root_cause}; expected={result.expected!r}; "

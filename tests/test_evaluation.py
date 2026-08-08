@@ -1,5 +1,8 @@
+from types import SimpleNamespace
+
 from evaluation_runner import (
-    compare_transcripts, format_duration, normalize_transcript, status_for_similarity,
+    compare_transcripts, evaluate_case_with_retries, format_duration,
+    normalize_transcript, status_for_similarity,
 )
 
 
@@ -27,3 +30,32 @@ def test_status_boundaries():
 def test_format_duration_is_readable_and_stable():
     assert format_duration(0) == "00:00:00"
     assert format_duration(3661) == "01:01:01"
+
+
+def test_failed_case_is_retried_and_best_result_is_retained():
+    results = iter([
+        SimpleNamespace(status="FAIL", similarity=40.0),
+        SimpleNamespace(status="PASS", similarity=85.0),
+    ])
+
+    result = evaluate_case_with_retries(
+        {}, None, None, retries=1, evaluator=lambda *_args: next(results),
+    )
+
+    assert result.status == "PASS"
+    assert result.attempts == 2
+    assert result.initial_similarity == 40.0
+    assert result.retry_improvement == 45.0
+
+
+def test_retry_limit_prevents_unbounded_failed_runs():
+    calls = []
+
+    def failed(*_args):
+        calls.append(1)
+        return SimpleNamespace(status="FAIL", similarity=20.0)
+
+    result = evaluate_case_with_retries({}, None, None, retries=2, evaluator=failed)
+
+    assert result.attempts == 3
+    assert len(calls) == 3

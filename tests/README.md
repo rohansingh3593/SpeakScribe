@@ -61,6 +61,11 @@ The evaluator defaults to the multilingual `small` model and accurate decoding. 
 diagnostic run. Generated WAV metadata is versioned; audio made by an older generator
 is rebuilt automatically so stale English-voice Hindi files are not silently reused.
 
+Every case below 60% is automatically run one additional time; the best real ASR result
+is retained and reports include `attempts`, `initial_similarity`, and
+`retry_improvement`. Set `$env:SPEAKSCRIBE_FAILED_RETRIES = "2"` to allow two retries,
+or `"0"` to disable them. Retries never substitute expected text or change test data.
+
 The cleanup runs in a `finally` block, including when generation or evaluation fails.
 To explicitly delete human recordings too, use `--cleanup-after all`. Without a cleanup
 option, audio is retained for the next run. Do not run `test_transcription.py` after
