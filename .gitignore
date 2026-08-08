@@ -2,5 +2,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 speakscribe.log
+evaluation/report.md
+evaluation/report.json
+test_audio/*.wav
 .venv/
-

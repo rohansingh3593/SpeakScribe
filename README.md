@@ -510,6 +510,25 @@ Devanagari runs. Technical terms remain protected. Speech start additionally req
 three consecutive energetic frames, and the higher continuation threshold allows
 the buffer to close during real microphone silence instead of decoding steady noise.
 
+## Prerecorded accuracy evaluation
+
+`evaluation/cases.json` defines reusable English, Hindi, and Hinglish cases covering
+short/long speech, technical vocabulary, fast/slow delivery, pauses, and background
+noise. Record the corresponding WAV files into `test_audio/`, then run:
+
+```bash
+python evaluation_runner.py
+```
+
+The evaluator uses the same Faster-Whisper engine and audio conversion path as the
+application. It writes `evaluation/report.md` and `evaluation/report.json`, including
+normalized word error rate, combined word/sequence similarity, language detection,
+missing/extra/substituted/duplicated words, technical-term failures, inference time,
+and real-time factor. Similarity of at least 80% passes, 60–79.99% passes with a
+warning, and less than 60% fails. Missing WAV files are reported explicitly and make
+the command exit with status 2; no synthetic transcript is presented as a real ASR
+result.
+
 ---
 
 # 🚀 Running the Application
