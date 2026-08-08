@@ -294,3 +294,29 @@ def ensure_audio(case: dict, root: Path, regenerate: bool = False) -> Generation
 
 def generate_all(cases: list[dict], root: Path, regenerate: bool = False) -> list[GenerationRecord]:
     return [ensure_audio(case, root, regenerate) for case in cases]
+
+
+def remove_test_audio(cases: list[dict], root: Path, include_human: bool = False) -> dict[str, int]:
+    """Remove test WAVs, preserving human recordings unless explicitly requested."""
+    records = load_generation_manifest()
+    removed = preserved = missing = 0
+    for case in cases:
+        relative_path = case["audio"]
+        final_path = root / relative_path
+        record = records.get(relative_path)
+        is_synthetic = bool(record and record.get("audio_source") == "synthetic")
+        if final_path.is_file() and (include_human or is_synthetic):
+            final_path.unlink()
+            removed += 1
+        elif final_path.is_file():
+            preserved += 1
+        else:
+            missing += 1
+
+        base_path = root / "tests/generated/base" / f"{case['id']}.wav"
+        base_path.unlink(missing_ok=True)
+        if include_human or is_synthetic:
+            records.pop(relative_path, None)
+
+    save_generation_manifest(records)
+    return {"removed": removed, "preserved": preserved, "missing": missing}

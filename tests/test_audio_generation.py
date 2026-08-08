@@ -79,3 +79,39 @@ def test_windows_tts_failure_includes_powershell_detail_and_install_hint(
     message = str(failure.value)
     assert "No installed compatible voice for: hi-IN" in message
     assert "Add-WindowsCapability" in message
+
+
+def test_remove_generated_audio_preserves_human_recordings(monkeypatch, tmp_path):
+    generated_case = {**CASE, "id": "CASE-01"}
+    human_case = {**CASE, "id": "CASE-02", "audio": "speech_cases/human.wav"}
+    generated = tmp_path / generated_case["audio"]
+    human = tmp_path / human_case["audio"]
+    generated.parent.mkdir(parents=True)
+    generated.write_bytes(b"synthetic")
+    human.write_bytes(b"human")
+    manifest = tmp_path / "generated.json"
+    manifest.write_text(
+        '{"seed": 42, "files": [{"audio_file": "speech_cases/case.wav", '
+        '"audio_source": "synthetic"}]}', encoding="utf-8",
+    )
+    monkeypatch.setattr(audio_generation, "GENERATED_MANIFEST", manifest)
+
+    result = audio_generation.remove_test_audio(
+        [generated_case, human_case], tmp_path, include_human=False,
+    )
+
+    assert result == {"removed": 1, "preserved": 1, "missing": 0}
+    assert not generated.exists()
+    assert human.read_bytes() == b"human"
+
+
+def test_remove_all_audio_requires_explicit_include_human(monkeypatch, tmp_path):
+    audio = tmp_path / CASE["audio"]
+    audio.parent.mkdir(parents=True)
+    audio.write_bytes(b"human")
+    monkeypatch.setattr(audio_generation, "GENERATED_MANIFEST", tmp_path / "generated.json")
+
+    result = audio_generation.remove_test_audio([CASE], tmp_path, include_human=True)
+
+    assert result["removed"] == 1
+    assert not audio.exists()

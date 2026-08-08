@@ -50,6 +50,18 @@ On Windows, inspect available voices with `python tests/generate_test_audio.py
 from Windows Settings, or run the elevated PowerShell command printed by the generator.
 Latin-only Hinglish can fall back to an installed English voice; Devanagari never does.
 
+Remove only synthetic/generated test audio (human recordings are preserved):
+
+```powershell
+python tests/generate_test_audio.py --remove-generated
+```
+
+To intentionally remove all 120 manifest audio files, including any human recordings:
+
+```powershell
+python tests/generate_test_audio.py --remove-all
+```
+
 Run the 120 mandatory parametrized pytest regressions:
 
 ```powershell
