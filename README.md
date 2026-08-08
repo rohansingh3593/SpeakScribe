@@ -504,6 +504,12 @@ avoids Media Foundation's unstable live 16 kHz conversion that produced disconti
 warnings and corrupted repeated Devanagari/URL output. Corrupt, URL, replacement-
 character, and extreme-repetition hypotheses are filtered before reaching the GUI.
 
+Script conversion is selective: Devanagari mode leaves Whisper's existing Hindi
+characters untouched and converts only Latin words, while Latin mode converts only
+Devanagari runs. Technical terms remain protected. Speech start additionally requires
+three consecutive energetic frames, and the higher continuation threshold allows
+the buffer to close during real microphone silence instead of decoding steady noise.
+
 ---
 
 # 🚀 Running the Application

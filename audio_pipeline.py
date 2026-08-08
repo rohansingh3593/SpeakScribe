@@ -62,18 +62,23 @@ class EnergySpeechDetector:
     def __init__(self, config: AppConfig):
         self.config = config
         self.speaking = False
+        self.start_frames = 0
 
     def classify(self, frame: np.ndarray) -> tuple[bool, float]:
         rms = float(np.sqrt(np.mean(np.square(frame), dtype=np.float64)))
-        threshold = (self.config.silence_threshold if self.speaking
-                     else self.config.speech_threshold)
-        active = rms >= threshold
-        if active:
-            self.speaking = True
+        if self.speaking:
+            active = rms >= self.config.silence_threshold
+        else:
+            self.start_frames = (self.start_frames + 1
+                                 if rms >= self.config.speech_threshold else 0)
+            active = self.start_frames >= self.config.speech_start_frames
+            if active:
+                self.speaking = True
         return active, rms
 
     def reset(self) -> None:
         self.speaking = False
+        self.start_frames = 0
 
 
 class AudioCaptureWorker:

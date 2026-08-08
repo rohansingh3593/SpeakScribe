@@ -46,7 +46,8 @@ class AppConfig:
     # float conversion. These remain above a typical quiet-room noise floor but
     # do not discard softer Hindi phonemes before Whisper sees them.
     speech_threshold: float = 0.003
-    silence_threshold: float = 0.0008
+    silence_threshold: float = 0.002
+    speech_start_frames: int = 3
     silence_duration: float = 1.50
     min_speech_duration: float = 0.80
     pre_speech_duration: float = 0.20

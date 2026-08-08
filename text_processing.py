@@ -89,16 +89,31 @@ def apply_script_mode(text: str, mode: str, technical_terms: tuple[str, ...]) ->
     sanscript = import_module("indic_transliteration.sanscript")
     protected: dict[str, str] = {}
     for index, term in enumerate(sorted(technical_terms, key=len, reverse=True)):
-        token = f"ZZPROTECTED{index}ZZ"
+        # Private-use markers contain neither Latin nor Devanagari letters, so
+        # the selective regex conversions below cannot mutate the placeholder.
+        token = f"\ue000{index}\ue001"
         updated = re.sub(re.escape(term), token, text, flags=re.IGNORECASE)
         if updated != text:
             protected[token] = term
             text = updated
     if mode == "latin":
-        text = sanscript.transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS)
+        # Preserve text that Whisper already emitted in Latin script and convert
+        # only Devanagari runs.
+        text = re.sub(
+            r"[\u0900-\u097f]+",
+            lambda match: sanscript.transliterate(
+                match.group(0), sanscript.DEVANAGARI, sanscript.ITRANS),
+            text,
+        )
     else:
-        # ITRANS is intentionally applied only on explicit user request.
-        text = sanscript.transliterate(text, sanscript.ITRANS, sanscript.DEVANAGARI)
+        # Most Hindi-mode Whisper output is already Devanagari. Never feed those
+        # characters into the ITRANS parser; convert Latin words only.
+        text = re.sub(
+            r"[A-Za-z']+",
+            lambda match: sanscript.transliterate(
+                match.group(0), sanscript.ITRANS, sanscript.DEVANAGARI),
+            text,
+        )
     for token, term in protected.items():
         text = text.replace(token, term)
     return text

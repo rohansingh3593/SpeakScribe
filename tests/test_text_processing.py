@@ -1,4 +1,5 @@
 import sys
+from types import ModuleType
 
 from text_processing import (
     apply_script_mode, clean_text, detect_language, is_low_quality_text,
@@ -39,3 +40,16 @@ def test_corrupt_and_repetitive_whisper_output_is_rejected():
     assert is_low_quality_text("https://www.cf.co.uk")
     assert is_low_quality_text("पुभुपुभुपुभुपुभुपुभु")
     assert not is_low_quality_text("आज हम SQLAlchemy upgrade पर काम करेंगे।")
+
+
+def test_devanagari_mode_does_not_retransliterate_existing_hindi(monkeypatch):
+    fake = ModuleType("indic_transliteration.sanscript")
+    fake.ITRANS = "itrans"
+    fake.DEVANAGARI = "devanagari"
+    fake.transliterate = lambda value, _source, _target: f"<{value}>"
+    monkeypatch.setitem(sys.modules, "indic_transliteration.sanscript", fake)
+
+    converted = apply_script_mode(
+        "आज main SQLAlchemy पर काम", "devanagari", ("SQLAlchemy",),
+    )
+    assert converted == "आज <main> SQLAlchemy पर काम"

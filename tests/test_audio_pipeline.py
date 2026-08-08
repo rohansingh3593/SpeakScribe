@@ -8,7 +8,7 @@ from config import AppConfig
 
 def test_energy_detector_hysteresis_and_reset():
     detector = EnergySpeechDetector(AppConfig(
-        speech_threshold=0.012, silence_threshold=0.008,
+        speech_threshold=0.012, silence_threshold=0.008, speech_start_frames=1,
     ))
     assert not detector.classify(np.zeros(480, dtype=np.float32))[0]
     assert detector.classify(np.full(480, 0.02, dtype=np.float32))[0]
@@ -19,7 +19,10 @@ def test_energy_detector_hysteresis_and_reset():
 
 def test_default_detector_accepts_quiet_laptop_microphone_speech():
     detector = EnergySpeechDetector(AppConfig())
-    assert detector.classify(np.full(480, 0.0035, dtype=np.float32))[0]
+    frame = np.full(480, 0.0035, dtype=np.float32)
+    assert not detector.classify(frame)[0]
+    assert not detector.classify(frame)[0]
+    assert detector.classify(frame)[0]
 
 
 def test_quiet_speech_is_centered_and_amplified_for_whisper():
