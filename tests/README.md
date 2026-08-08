@@ -36,6 +36,19 @@ The one-command generation → validation → ASR → report workflow is:
 python tests/run_speech_suite.py
 ```
 
+Recommended sequence to run all 120 cases, write reports, and then remove only
+synthetic audio while retaining human recordings:
+
+```powershell
+python -m pytest -q tests/test_audio_generation.py tests/test_validation_manifest.py tests/test_evaluation.py tests/test_text_processing.py
+python tests/run_speech_suite.py --cleanup-after generated
+```
+
+The cleanup runs in a `finally` block, including when generation or evaluation fails.
+To explicitly delete human recordings too, use `--cleanup-after all`. Without a cleanup
+option, audio is retained for the next run. Do not run `test_transcription.py` after
+`run_speech_suite.py` unless a second complete 120-case ASR run is intended.
+
 TTS uses installed operating-system voices and never imports the ASR engine. Windows
 uses `System.Speech` (install a `hi-IN` voice for Hindi; Hinglish prefers `hi-IN` then
 `en-IN`), macOS uses `say` with Samantha/Lekha, and Linux requires `espeak-ng` or
