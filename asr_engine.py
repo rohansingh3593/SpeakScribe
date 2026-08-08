@@ -45,13 +45,17 @@ class WhisperEngine:
         beam_size = profile.beam_size if job.final else 1
         best_of = profile.best_of if job.final else 1
         vocabulary = ", ".join(self.config.vocabulary)
-        prompt = (
+        final_prompt = (
             "Speech may be Hindi (हिन्दी), English, or naturally mixed Hinglish. "
             "Transcribe exactly in the spoken language and original script; do not "
             f"translate. Technical vocabulary: {vocabulary}."
         )
         if context:
-            prompt += f" Recent context: {context}"
+            final_prompt += f" Recent context: {context}"
+        # A long prompt on sub-second audio can itself seed hallucinations (for
+        # example repeated URLs). Partials prioritize the actual audio; finals use
+        # vocabulary and recent context for correction.
+        prompt = final_prompt if job.final else None
         language = None if self.config.language_mode == "auto" else self.config.language_mode
         segments, info = self.model.transcribe(
             prepare_audio_for_asr(job.audio), language=language, task="transcribe",
@@ -59,6 +63,9 @@ class WhisperEngine:
             best_of=best_of, temperature=profile.temperature,
             initial_prompt=prompt, condition_on_previous_text=False,
             vad_filter=self.config.vad_filter, word_timestamps=False,
+            no_speech_threshold=self.config.no_speech_threshold,
+            log_prob_threshold=self.config.min_avg_logprob,
+            compression_ratio_threshold=2.4,
         )
         accepted = []
         segment_count = 0
