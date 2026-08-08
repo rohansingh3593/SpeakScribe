@@ -39,6 +39,23 @@ def prepare_audio_for_asr(audio: np.ndarray) -> np.ndarray:
     return np.clip(prepared, -1.0, 1.0).astype(np.float32, copy=False)
 
 
+def resample_audio_block(audio: np.ndarray, source_rate: int,
+                         target_rate: int) -> np.ndarray:
+    """Downsample one capture block while preserving its exact duration."""
+    audio = np.asarray(audio, dtype=np.float32)
+    if source_rate == target_rate or audio.size == 0:
+        return audio
+    if source_rate % target_rate == 0:
+        factor = source_rate // target_rate
+        usable = audio.size - (audio.size % factor)
+        # Averaging provides a cheap anti-alias filter for the native 48k -> 16k
+        # path and is substantially safer than asking WASAPI to convert live.
+        return audio[:usable].reshape(-1, factor).mean(axis=1, dtype=np.float32)
+    output_size = max(1, round(audio.size * target_rate / source_rate))
+    positions = np.linspace(0, audio.size - 1, output_size)
+    return np.interp(positions, np.arange(audio.size), audio).astype(np.float32)
+
+
 class EnergySpeechDetector:
     """Hysteretic RMS detector, isolated so another VAD can replace it later."""
 
@@ -81,11 +98,13 @@ class AudioCaptureWorker:
             log_print(f"Audio device: {microphone.name}")
             with warnings.catch_warnings():
                 warnings.filterwarnings("once", category=soundcard_warning)
-                with microphone.recorder(samplerate=self.config.sample_rate,
+                with microphone.recorder(samplerate=self.config.capture_sample_rate,
                                          channels=self.config.channels) as recorder:
                     while not self.stop_event.is_set():
-                        block = recorder.record(numframes=self.config.frame_samples)
-                        frame = np.asarray(block[:, 0], dtype=np.float32)
+                        block = recorder.record(numframes=self.config.capture_frame_samples)
+                        frame = resample_audio_block(
+                            block[:, 0], self.config.capture_sample_rate,
+                            self.config.sample_rate)
                         try:
                             self.output.put(frame, timeout=0.05)
                         except Full:

@@ -498,6 +498,12 @@ language hint that short Hindi clips cannot reliably auto-detect while still
 preserving embedded English technical words. The GUI also provides Auto and English
 modes. Common short-audio Whisper outro hallucinations are rejected conservatively.
 
+On Windows, SoundCard now captures Realtek/WASAPI microphones at their common native
+48 kHz rate and downsamples each 30 ms block to Whisper's 16 kHz using NumPy. This
+avoids Media Foundation's unstable live 16 kHz conversion that produced discontinuity
+warnings and corrupted repeated Devanagari/URL output. Corrupt, URL, replacement-
+character, and extreme-repetition hypotheses are filtered before reaching the GUI.
+
 ---
 
 # 🚀 Running the Application

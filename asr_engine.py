@@ -11,7 +11,9 @@ from psutil import Process
 from audio_pipeline import ASRJob, prepare_audio_for_asr
 from config import AppConfig
 from logger import log_print
-from text_processing import apply_script_mode, clean_text, detect_language
+from text_processing import (
+    apply_script_mode, clean_text, detect_language, is_low_quality_text,
+)
 
 KNOWN_SHORT_HALLUCINATIONS = {
     "thank you", "thank you.", "thanks", "thanks.", "thanks for watching",
@@ -93,6 +95,9 @@ class WhisperEngine:
         if (len(job.audio) / self.config.sample_rate < 2.0 and
                 text.casefold() in KNOWN_SHORT_HALLUCINATIONS):
             log_print(f"[ASR] rejected known short-audio hallucination: {text!r}")
+            text = ""
+        if is_low_quality_text(text):
+            log_print(f"[ASR] rejected corrupt/repetitive transcript: {text!r}")
             text = ""
         text = apply_script_mode(text, self.config.script_mode, self.config.vocabulary)
         mode = detect_language(text, getattr(info, "language", None))

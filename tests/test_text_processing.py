@@ -1,7 +1,8 @@
 import sys
 
 from text_processing import (
-    apply_script_mode, clean_text, detect_language, remove_history_overlap,
+    apply_script_mode, clean_text, detect_language, is_low_quality_text,
+    remove_history_overlap,
 )
 
 
@@ -31,3 +32,10 @@ def test_original_script_mode_does_not_load_optional_transliteration():
         "मुझे FastAPI चाहिए"
     )
     assert "indic_transliteration" not in sys.modules
+
+
+def test_corrupt_and_repetitive_whisper_output_is_rejected():
+    assert is_low_quality_text("पर �")
+    assert is_low_quality_text("https://www.cf.co.uk")
+    assert is_low_quality_text("पुभुपुभुपुभुपुभुपुभु")
+    assert not is_low_quality_text("आज हम SQLAlchemy upgrade पर काम करेंगे।")

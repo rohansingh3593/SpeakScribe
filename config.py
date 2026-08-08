@@ -36,6 +36,10 @@ DEFAULT_VOCABULARY = (
 @dataclass
 class AppConfig:
     sample_rate: int = 16_000
+    # Realtek/WASAPI devices normally run natively at 48 kHz. Asking Media
+    # Foundation to capture directly at 16 kHz caused discontinuities and garbled
+    # Whisper input on the reported machine, so capture natively and downsample.
+    capture_sample_rate: int = 48_000
     channels: int = 1
     frame_ms: int = 30
     # Laptop microphone levels are commonly well below 0.01 after SoundCard's
@@ -72,6 +76,10 @@ class AppConfig:
     @property
     def frame_samples(self) -> int:
         return self.sample_rate * self.frame_ms // 1000
+
+    @property
+    def capture_frame_samples(self) -> int:
+        return self.capture_sample_rate * self.frame_ms // 1000
 
     @property
     def profile(self) -> DecodeProfile:

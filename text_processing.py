@@ -36,6 +36,9 @@ def clean_text(text: str, final: bool = False) -> str:
     text = re.sub(r"([,.!?])\1+", r"\1", text)
     text = re.sub(r"\b([\w'\u0900-\u097f]+)(?:\s+\1\b)+", r"\1", text,
                   flags=re.IGNORECASE)
+    words = text.split()
+    text = " ".join(word for index, word in enumerate(words)
+                    if index == 0 or word.casefold() != words[index - 1].casefold())
     for raw, canonical in TECHNICAL_CANONICAL.items():
         text = re.sub(rf"(?<!\w){re.escape(raw)}(?!\w)", canonical, text,
                       flags=re.IGNORECASE)
@@ -45,6 +48,25 @@ def clean_text(text: str, final: bool = False) -> str:
     if final and text and text[-1] not in ".!?।":
         text += "।" if re.search(r"[\u0900-\u097f]", text) else "."
     return text
+
+
+def is_low_quality_text(text: str) -> bool:
+    """Reject corruption/repetition without rewriting plausible speech."""
+    compact = re.sub(r"\s+", "", text)
+    lowered = text.casefold()
+    if not compact:
+        return False
+    if "\ufffd" in text or "http://" in lowered or "https://" in lowered or "www." in lowered:
+        return True
+    if re.search(r"(.)\1{5,}", compact):
+        return True
+    if len(compact) >= 24 and len(set(compact)) / len(compact) < 0.18:
+        return True
+    for width in range(2, min(9, len(compact) // 4 + 1)):
+        if any(compact[index:index + width] * 4 in compact
+               for index in range(len(compact) - width + 1)):
+            return True
+    return False
 
 
 def remove_history_overlap(history: str, text: str, limit: int = 12) -> str:

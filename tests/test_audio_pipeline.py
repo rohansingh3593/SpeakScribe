@@ -1,6 +1,8 @@
 import numpy as np
 
-from audio_pipeline import EnergySpeechDetector, prepare_audio_for_asr
+from audio_pipeline import (
+    EnergySpeechDetector, prepare_audio_for_asr, resample_audio_block,
+)
 from config import AppConfig
 
 
@@ -27,3 +29,10 @@ def test_quiet_speech_is_centered_and_amplified_for_whisper():
     assert abs(float(np.mean(prepared))) < 1e-5
     assert float(np.max(np.abs(prepared))) > 0.09
     assert float(np.max(np.abs(prepared))) <= 1.0
+
+
+def test_native_48khz_capture_is_downsampled_to_16khz():
+    source = np.arange(1440, dtype=np.float32)
+    result = resample_audio_block(source, 48_000, 16_000)
+    assert result.shape == (480,)
+    assert np.isclose(result[0], 1.0)
