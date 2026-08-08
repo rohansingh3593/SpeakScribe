@@ -15,6 +15,7 @@ import tempfile
 import wave
 
 TEST_RANDOM_SEED = 42
+GENERATOR_VERSION = 2
 MANIFEST_PATH = Path(__file__).parent / "expected" / "transcripts.json"
 GENERATED_MANIFEST = Path(__file__).parent / "generated_audio_manifest.json"
 DEVANAGARI_PATTERN = range(0x0900, 0x0980)
@@ -31,6 +32,7 @@ class GenerationRecord:
     generated: bool
     status: str
     error: str = ""
+    generator_version: int = GENERATOR_VERSION
 
 
 def load_generation_manifest() -> dict[str, dict]:
@@ -320,7 +322,9 @@ def ensure_audio(case: dict, root: Path, regenerate: bool = False) -> Generation
     prior = records.get(case["audio"])
     prior_is_generated = bool(prior and prior.get("generated") and
                               prior.get("status") == "GENERATED")
-    if final_path.is_file() and not (regenerate and prior_is_generated):
+    stale_generated = bool(prior_is_generated and
+                           prior.get("generator_version") != GENERATOR_VERSION)
+    if final_path.is_file() and not (prior_is_generated and (regenerate or stale_generated)):
         validate_wav(final_path)
         source = "synthetic" if prior_is_generated else "human"
         return GenerationRecord(case["id"], case["audio"], source, case["language"],

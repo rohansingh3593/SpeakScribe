@@ -9,6 +9,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 import json
 import csv
+import os
 from pathlib import Path
 import re
 import sys
@@ -201,10 +202,13 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
     from config import AppConfig, PerformanceMode
 
     path = root / case["audio"]
-    language_hint = {"English": "en", "Hindi": "hi", "Hinglish": "hi"}[case["language"]]
+    # Forcing all code-switched speech through Hindi decoding drops English words.
+    # Pure Hindi/English remain pinned; mixed Hinglish uses Whisper detection.
+    language_hint = {"English": "en", "Hindi": "hi", "Hinglish": "auto"}[case["language"]]
     config = AppConfig(
         language_mode=language_hint,
-        performance_mode=PerformanceMode(case.get("performance", "balanced")),
+        model_size=os.getenv("SPEAKSCRIBE_EVAL_MODEL", "small"),
+        performance_mode=PerformanceMode.ACCURATE,
     )
     audio = load_wav(path, config.sample_rate)
     started = time.monotonic()

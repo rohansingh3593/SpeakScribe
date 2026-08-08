@@ -80,7 +80,7 @@ class WhisperEngine:
         # Context prompts improve long technical dictation, but on the supplied
         # short/noisy clips they seeded URL-like hallucinations. Use them only
         # after enough acoustic evidence has accumulated.
-        prompt = final_prompt if job.final and len(job.audio) >= 3 * self.config.sample_rate else None
+        prompt = final_prompt if job.final and len(job.audio) >= self.config.sample_rate else None
         language = None if self.config.language_mode == "auto" else self.config.language_mode
         prepared = prepare_audio_for_asr(job.audio)
         raw_stats = audio_statistics(job.audio)

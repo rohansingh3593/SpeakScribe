@@ -145,3 +145,34 @@ def test_windows_tts_reports_both_backend_failures(monkeypatch, tmp_path):
         audio_generation._run_windows_tts(
             "आज काम पूरा करना है", "Hindi", tmp_path / "hindi.wav", 0, 0,
         )
+
+
+def test_stale_synthetic_audio_is_regenerated(monkeypatch, tmp_path):
+    audio = tmp_path / CASE["audio"]
+    audio.parent.mkdir(parents=True)
+    audio.write_bytes(b"old")
+    manifest = tmp_path / "generated.json"
+    manifest.write_text(
+        '{"seed": 42, "files": [{"audio_file": "speech_cases/case.wav", '
+        '"audio_source": "synthetic", "generated": true, "status": "GENERATED", '
+        '"generator_version": 1}]}', encoding="utf-8",
+    )
+    monkeypatch.setattr(audio_generation, "GENERATED_MANIFEST", manifest)
+    monkeypatch.setattr(audio_generation, "validate_wav", lambda _path: {"duration": 1})
+
+    def synthesize(_text, _language, output, _profile, _variation):
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"new-base")
+        return "new-voice"
+
+    monkeypatch.setattr(audio_generation, "synthesize_clean", synthesize)
+    monkeypatch.setattr(
+        audio_generation, "apply_audio_profile",
+        lambda _base, final, _profile, _case_id: final.write_bytes(b"new-final"),
+    )
+
+    record = audio_generation.ensure_audio(CASE, tmp_path)
+
+    assert record.status == "GENERATED"
+    assert record.generator_version == audio_generation.GENERATOR_VERSION
+    assert audio.read_bytes() == b"new-final"

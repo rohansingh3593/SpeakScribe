@@ -56,6 +56,11 @@ execution time, and report locations. The ETA becomes meaningful after several c
 runtime depends on audio length and hardware, and CPU inference can take substantially
 longer than CUDA inference.
 
+The evaluator defaults to the multilingual `small` model and accurate decoding. Set
+`SPEAKSCRIBE_EVAL_MODEL=medium` for a slower accuracy-focused run or `base` for a faster
+diagnostic run. Generated WAV metadata is versioned; audio made by an older generator
+is rebuilt automatically so stale English-voice Hindi files are not silently reused.
+
 The cleanup runs in a `finally` block, including when generation or evaluation fails.
 To explicitly delete human recordings too, use `--cleanup-after all`. Without a cleanup
 option, audio is retained for the next run. Do not run `test_transcription.py` after
