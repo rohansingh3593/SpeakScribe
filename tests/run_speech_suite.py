@@ -2,6 +2,7 @@
 
 import argparse
 from datetime import datetime
+import importlib.util
 from pathlib import Path
 import subprocess
 import sys
@@ -12,6 +13,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from evaluation_runner import format_duration
+
+
+def missing_asr_dependencies() -> list[str]:
+    return [name for name in ("numpy", "faster_whisper")
+            if importlib.util.find_spec(name) is None]
 
 
 def parse_args(argv=None):
@@ -37,23 +43,37 @@ def main(argv=None) -> int:
     print(f"Started: {started_at.isoformat(timespec='seconds')}")
     print("ETA is calculated during ASR; CPU runs may take much longer than GPU runs.")
     try:
-        stage_started = time.perf_counter()
-        print("[Stage 1/3] Generating and validating test audio...", flush=True)
-        generation = subprocess.run(
-            [sys.executable, "tests/generate_test_audio.py"], cwd=root, check=False)
-        print(f"[Stage 1/3] Finished in {format_duration(time.perf_counter() - stage_started)}")
-        if generation.returncode:
-            print("Audio generation did not complete; ASR was not run.", file=sys.stderr)
-            exit_code = 3
+        missing = missing_asr_dependencies()
+        if missing:
+            print(
+                "ASR_DEPENDENCY_ERROR: missing " + ", ".join(missing) + ".\n"
+                f"Active Python: {sys.executable}\n"
+                "Install into this environment with:\n"
+                f'  "{sys.executable}" -m pip install -r requirements.txt\n'
+                "Then verify with:\n"
+                f'  "{sys.executable}" -c "from faster_whisper import WhisperModel; '
+                'print(\'faster-whisper ready\')"',
+                file=sys.stderr,
+            )
+            exit_code = 5
         else:
             stage_started = time.perf_counter()
-            print("[Stage 2/3] Running 120 ASR evaluations and writing reports...", flush=True)
-            evaluation = subprocess.run(
-                [sys.executable, "evaluation_runner.py", "--no-generate"],
-                cwd=root, check=False,
-            )
-            exit_code = evaluation.returncode
-            print(f"[Stage 2/3] Finished in {format_duration(time.perf_counter() - stage_started)}")
+            print("[Stage 1/3] Generating and validating test audio...", flush=True)
+            generation = subprocess.run(
+                [sys.executable, "tests/generate_test_audio.py"], cwd=root, check=False)
+            print(f"[Stage 1/3] Finished in {format_duration(time.perf_counter() - stage_started)}")
+            if generation.returncode:
+                print("Audio generation did not complete; ASR was not run.", file=sys.stderr)
+                exit_code = 3
+            else:
+                stage_started = time.perf_counter()
+                print("[Stage 2/3] Running 120 ASR evaluations and writing reports...", flush=True)
+                evaluation = subprocess.run(
+                    [sys.executable, "evaluation_runner.py", "--no-generate"],
+                    cwd=root, check=False,
+                )
+                exit_code = evaluation.returncode
+                print(f"[Stage 2/3] Finished in {format_duration(time.perf_counter() - stage_started)}")
     finally:
         if args.cleanup_after != "none":
             stage_started = time.perf_counter()

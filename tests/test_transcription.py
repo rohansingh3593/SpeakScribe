@@ -1,5 +1,6 @@
 """Mandatory 120-case production ASR regression suite."""
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -7,6 +8,14 @@ import pytest
 
 from evaluation_runner import evaluate_case
 from tests.audio_generation import ensure_audio
+
+
+if importlib.util.find_spec("faster_whisper") is None:
+    raise pytest.UsageError(
+        "ASR_DEPENDENCY_ERROR: faster-whisper is not installed in the active Python. "
+        "Run: python -m pip install -r requirements.txt; then verify with: "
+        'python -c "from faster_whisper import WhisperModel; print(\'ready\')"'
+    )
 
 
 ROOT = Path(__file__).resolve().parents[1]

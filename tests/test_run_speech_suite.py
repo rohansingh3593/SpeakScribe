@@ -25,6 +25,7 @@ def test_cleanup_generated_runs_after_success(monkeypatch):
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(run_speech_suite.subprocess, "run", run)
+    monkeypatch.setattr(run_speech_suite, "missing_asr_dependencies", lambda: [])
     assert run_speech_suite.main(["--cleanup-after", "generated"]) == 0
     assert commands[-1][-1] == "--remove-generated"
     assert any("evaluation_runner.py" in command for command in commands)
@@ -38,6 +39,21 @@ def test_cleanup_all_runs_even_when_generation_fails(monkeypatch):
         return SimpleNamespace(returncode=1 if len(commands) == 1 else 0)
 
     monkeypatch.setattr(run_speech_suite.subprocess, "run", run)
+    monkeypatch.setattr(run_speech_suite, "missing_asr_dependencies", lambda: [])
     assert run_speech_suite.main(["--cleanup-after", "all"]) == 3
     assert commands[-1][-1] == "--remove-all"
     assert not any("evaluation_runner.py" in command for command in commands)
+
+
+def test_missing_asr_dependency_stops_before_generation(monkeypatch, capsys):
+    monkeypatch.setattr(run_speech_suite, "missing_asr_dependencies",
+                        lambda: ["faster_whisper"])
+    monkeypatch.setattr(
+        run_speech_suite.subprocess, "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not run")),
+    )
+
+    assert run_speech_suite.main([]) == 5
+    error = capsys.readouterr().err
+    assert "ASR_DEPENDENCY_ERROR" in error
+    assert "pip install -r requirements.txt" in error

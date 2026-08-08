@@ -40,9 +40,15 @@ Recommended sequence to run all 120 cases, write reports, and then remove only
 synthetic audio while retaining human recordings:
 
 ```powershell
+python -m pip install -r requirements.txt
+python -c "from faster_whisper import WhisperModel; print('faster-whisper ready')"
 python -m pytest -q tests/test_audio_generation.py tests/test_validation_manifest.py tests/test_evaluation.py tests/test_text_processing.py
 python tests/run_speech_suite.py --cleanup-after generated
 ```
+
+Always use `python -m pip`, not a bare `pip`, so packages are installed into the same
+virtual environment that runs the suite. A missing ASR dependency now stops once with
+`ASR_DEPENDENCY_ERROR` before the 120 cases, instead of producing 120 identical failures.
 
 The command prints start/completion timestamps, individual `[ASR 001/120]` progress,
 elapsed time, a continuously updated ETA, per-stage duration, final suite status, total
