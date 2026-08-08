@@ -44,6 +44,12 @@ python -m pytest -q tests/test_audio_generation.py tests/test_validation_manifes
 python tests/run_speech_suite.py --cleanup-after generated
 ```
 
+The command prints start/completion timestamps, individual `[ASR 001/120]` progress,
+elapsed time, a continuously updated ETA, per-stage duration, final suite status, total
+execution time, and report locations. The ETA becomes meaningful after several cases;
+runtime depends on audio length and hardware, and CPU inference can take substantially
+longer than CUDA inference.
+
 The cleanup runs in a `finally` block, including when generation or evaluation fails.
 To explicitly delete human recordings too, use `--cleanup-after all`. Without a cleanup
 option, audio is retained for the next run. Do not run `test_transcription.py` after

@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from difflib import SequenceMatcher
 import json
 import csv
 from pathlib import Path
 import re
+import sys
 import time
 import wave
 
@@ -21,6 +23,13 @@ TECHNICAL_TERMS = {
     "ctranslate2", "marianmt", "rest", "ci", "cd", "cpu", "gpu", "ram",
     "sql", "http", "https", "url", "json", "yaml", "aws", "faster", "whisper",
 }
+
+
+def format_duration(seconds: float) -> str:
+    seconds = max(0, round(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
 @dataclass(frozen=True)
@@ -408,8 +417,20 @@ def main() -> int:
     if runnable:
         from asr_engine import WhisperModelProvider
         provider = WhisperModelProvider()
-        for case in runnable:
+        evaluation_started = time.perf_counter()
+        total = len(runnable)
+        for index, case in enumerate(runnable, 1):
+            case_started = time.perf_counter()
             results.append(evaluate_case(case, root, provider))
+            elapsed = time.perf_counter() - evaluation_started
+            eta = elapsed / index * (total - index)
+            print(
+                f"[ASR {index:03d}/{total:03d}] {case['id']} complete | "
+                f"case={format_duration(time.perf_counter() - case_started)} "
+                f"elapsed={format_duration(elapsed)} ETA={format_duration(eta)} "
+                f"status={results[-1].status}",
+                file=sys.stderr, flush=True,
+            )
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     report = render_markdown(results, missing, baseline)
     if generation_errors:
@@ -433,6 +454,11 @@ def main() -> int:
                     row[key] = " | ".join(value)
             writer.writerow(row)
     print(report)
+    print(
+        f"Evaluation completed at {datetime.now().astimezone().isoformat(timespec='seconds')} | "
+        f"executed={len(results)}/{len(cases)}",
+        file=sys.stderr, flush=True,
+    )
     if generation_errors:
         return 3
     if missing:
