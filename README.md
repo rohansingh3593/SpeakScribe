@@ -1,5 +1,10 @@
 # 🎙️ Real-Time Hindi, English & Hinglish Speech-to-Text
 
+> **Implementation note:** the repository originally contained this design document only.
+> The current implementation follows it with independent capture, segmentation, ASR,
+> optional translation, and GUI stages. Configuration lives in `config.py`; start with
+> `python main.py`.
+
 A fast, real-time Speech Recognition desktop application built with **Python, PyQt6, SoundCard, and Faster-Whisper**.
 
 The application continuously listens to microphone input and converts speech into text with a focus on **low latency, transcription accuracy, and Hindi/English/Hinglish support**.
