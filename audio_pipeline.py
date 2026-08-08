@@ -22,6 +22,23 @@ class ASRJob:
     captured_at: float
 
 
+def prepare_audio_for_asr(audio: np.ndarray) -> np.ndarray:
+    """Remove DC and safely lift quiet, VAD-approved microphone speech.
+
+    Whisper is tolerant of normal recording levels, so loud input is untouched.
+    Quiet microphone input is capped at 10x gain to avoid turning tiny numerical
+    noise into full-scale audio.
+    """
+    prepared = np.asarray(audio, dtype=np.float32)
+    if prepared.size == 0:
+        return prepared
+    prepared = prepared - np.mean(prepared, dtype=np.float64)
+    peak = float(np.max(np.abs(prepared)))
+    if 1e-5 < peak < 0.25:
+        prepared = prepared * min(10.0, 0.8 / peak)
+    return np.clip(prepared, -1.0, 1.0).astype(np.float32, copy=False)
+
+
 class EnergySpeechDetector:
     """Hysteretic RMS detector, isolated so another VAD can replace it later."""
 
@@ -129,7 +146,7 @@ class SpeechBufferWorker:
                 frame = self.audio_queue.get(timeout=0.1)
             except Empty:
                 continue
-            active, _ = self.detector.classify(frame)
+            active, rms = self.detector.classify(frame)
             now = time.monotonic()
             if not speech:
                 pre.append(frame)
@@ -139,7 +156,7 @@ class SpeechBufferWorker:
                     pre.clear()
                     silence = 0.0
                     last_partial = now
-                    log_print(f"Speech detected: utterance={self.utterance_id}")
+                    log_print(f"Speech detected: utterance={self.utterance_id} rms={rms:.5f}")
                 continue
             speech.append(frame)
             silence = 0.0 if active else silence + frame_seconds

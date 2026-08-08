@@ -38,8 +38,11 @@ class AppConfig:
     sample_rate: int = 16_000
     channels: int = 1
     frame_ms: int = 30
-    speech_threshold: float = 0.012
-    silence_threshold: float = 0.008
+    # Laptop microphone levels are commonly well below 0.01 after SoundCard's
+    # float conversion. These remain above a typical quiet-room noise floor but
+    # do not discard softer Hindi phonemes before Whisper sees them.
+    speech_threshold: float = 0.004
+    silence_threshold: float = 0.0025
     silence_duration: float = 0.55
     min_speech_duration: float = 0.20
     pre_speech_duration: float = 0.20
@@ -70,4 +73,3 @@ class AppConfig:
     @property
     def profile(self) -> DecodeProfile:
         return PROFILES[self.performance_mode]
-

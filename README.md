@@ -473,6 +473,11 @@ Likewise, `indic-transliteration` is loaded only when Latin or Devanagari script
 conversion is selected. Language detection, cleanup, and the default `Original`
 script mode do not require the optional transliteration package during import.
 
+For quiet laptop microphone input, the default RMS speech threshold is `0.004`.
+Accepted speech is DC-centered and receives capped gain before Whisper inference;
+silence still remains excluded by the RMS detector. Detection logs include the
+measured RMS value so the thresholds can be tuned for a particular microphone.
+
 ---
 
 # 🚀 Running the Application
