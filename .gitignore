@@ -6,4 +6,6 @@ evaluation/report.md
 evaluation/report.json
 test_audio/*.wav
 debug_audio/
+tests/speech_cases/**/*.wav
+tests/results/latest_report.*
 .venv/

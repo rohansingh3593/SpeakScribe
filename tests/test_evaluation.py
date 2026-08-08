@@ -20,5 +20,5 @@ def test_similarity_reports_word_errors_and_warning_status():
 
 def test_status_boundaries():
     assert status_for_similarity(80) == "PASS"
-    assert status_for_similarity(60) == "PASS WITH WARNING"
+    assert status_for_similarity(60) == "WARNING"
     assert status_for_similarity(59.99) == "FAIL"

@@ -7,6 +7,7 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from difflib import SequenceMatcher
 import json
+import csv
 from pathlib import Path
 import re
 import time
@@ -17,6 +18,8 @@ TECHNICAL_TERMS = {
     "python", "pyqt6", "sqlalchemy", "alembic", "fastapi", "pydantic",
     "jenkins", "docker", "kubernetes", "git", "github", "gitlab", "jira",
     "api", "pr", "pytest", "postgresql", "mongodb", "kafka", "redis",
+    "ctranslate2", "marianmt", "rest", "ci", "cd", "cpu", "gpu", "ram",
+    "sql", "http", "https", "url", "json", "yaml", "aws", "faster", "whisper",
 }
 
 
@@ -32,6 +35,8 @@ class EvaluationResult:
     case_id: str
     audio: str
     language: str
+    scenario: str
+    difficulty: str
     expected: str
     actual: str
     detected_language: str
@@ -46,6 +51,17 @@ class EvaluationResult:
     substitutions: list[str]
     duplicated_words: list[str]
     technical_term_problems: list[str]
+    technical_term_accuracy: float
+    number_accuracy: float
+    punctuation_difference: bool
+    total_processing_seconds: float
+    first_partial_latency: float | None
+    final_transcript_latency: float
+    partial_updates: int
+    duplicate_partials: int
+    dropped_chunks: int
+    root_cause: str
+    recommended_fix: str
     possible_problem: str
 
 
@@ -105,10 +121,12 @@ def compare_transcripts(expected: str, actual: str) -> tuple[float, float, EditD
 
 
 def status_for_similarity(similarity: float) -> str:
+    if similarity >= 90:
+        return "EXCELLENT"
     if similarity >= 80:
         return "PASS"
     if similarity >= 60:
-        return "PASS WITH WARNING"
+        return "WARNING"
     return "FAIL"
 
 
@@ -147,6 +165,27 @@ def _diagnosis(result: EvaluationResult) -> str:
     return "Review pronunciation, model profile, and conservative text cleanup."
 
 
+def _root_cause(case: dict, result: EvaluationResult) -> tuple[str, str]:
+    features = set(case.get("features", []))
+    if result.detected_language.casefold() != result.language.casefold() and result.language != "Hinglish":
+        return "Language detection", "Review the language hint and detection window; do not rewrite the expected text."
+    if result.technical_term_problems:
+        return "Technical vocabulary", "Tune general vocabulary prompting and validate the whole technical category."
+    if "low_volume" in features:
+        return "Low-volume sensitivity", "Inspect RMS/VAD diagnostics and tune adaptive thresholds using all low-volume cases."
+    if features.intersection({"background_noise", "traffic_noise", "office_noise", "fan_noise_high"}):
+        return "Noise sensitivity", "Improve speech/noise discrimination and rerun the complete noise category."
+    if features.intersection({"long_pause", "small_word_pauses", "silence_before", "silence_after"}):
+        return "VAD", "Review pre-roll, hangover, and voiced-duration handling across the related pause cases."
+    if result.duplicate_partials:
+        return "Partial-result merging", "Improve stable-prefix merging without hardcoding this transcript."
+    if result.real_time_factor > 1:
+        return "Performance/latency", "Reduce redundant partial inference or select a generally faster decode profile."
+    if result.punctuation_difference and result.similarity >= 80:
+        return "Punctuation", "Adjust conservative final punctuation only; preserve recognized words."
+    return "Whisper decoding", "Inspect segment confidence and audio quality, then rerun the scenario and full suite."
+
+
 def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
     from audio_pipeline import ASRJob
     from config import AppConfig, PerformanceMode
@@ -158,21 +197,46 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
         performance_mode=PerformanceMode(case.get("performance", "balanced")),
     )
     audio = load_wav(path, config.sample_rate)
-    job = ASRJob(audio=audio, final=True, utterance_id=1, captured_at=time.monotonic())
     started = time.monotonic()
+    partials: list[str] = []
+    first_partial_latency = None
+    if case.get("streaming", False):
+        first_samples = min(len(audio), round(config.min_partial_duration * config.sample_rate))
+        step_samples = max(1, round(max(config.partial_interval, 1.0) * config.sample_rate))
+        for endpoint in range(first_samples, len(audio), step_samples):
+            partial_job = ASRJob(audio=audio[:endpoint], final=False, utterance_id=1,
+                                 captured_at=time.monotonic(),
+                                 speech_seconds=endpoint / config.sample_rate)
+            partial, _ = provider.get(config).transcribe(partial_job, "")
+            if partial:
+                partials.append(partial)
+                if first_partial_latency is None:
+                    first_partial_latency = time.monotonic() - started
+    job = ASRJob(audio=audio, final=True, utterance_id=1, captured_at=time.monotonic(),
+                 speech_seconds=len(audio) / config.sample_rate)
+    final_started = time.monotonic()
     actual, detected = provider.get(config).transcribe(job, "")
-    inference = time.monotonic() - started
+    inference = time.monotonic() - final_started
+    total_processing = time.monotonic() - started
     duration = len(audio) / config.sample_rate
     similarity, wer, edits = compare_transcripts(case["expected"], actual)
     expected_terms = TECHNICAL_TERMS.intersection(normalize_transcript(case["expected"]).split())
     actual_terms = set(normalize_transcript(actual).split())
     technical_problems = sorted(expected_terms - actual_terms)
+    technical_accuracy = 100.0 if not expected_terms else 100 * (
+        len(expected_terms) - len(technical_problems)) / len(expected_terms)
+    expected_numbers = re.findall(r"\b\d+(?:[.:]\d+)*\b", normalize_transcript(case["expected"]))
+    actual_numbers = re.findall(r"\b\d+(?:[.:]\d+)*\b", normalize_transcript(actual))
+    number_accuracy = 100.0 if not expected_numbers else 100 * sum(
+        (Counter(actual_numbers) & Counter(expected_numbers)).values()) / len(expected_numbers)
     expected_counts = Counter(normalize_transcript(case["expected"]).split())
     actual_counts = Counter(normalize_transcript(actual).split())
     duplicated = sorted(word for word, count in actual_counts.items()
                         if count > max(1, expected_counts[word]) + 1)
     result = EvaluationResult(
         case_id=case["id"], audio=case["audio"], language=case["language"],
+        scenario=case.get("scenario", "unspecified"),
+        difficulty=case.get("difficulty", "unspecified"),
         expected=case["expected"], actual=actual, detected_language=detected,
         similarity=similarity, wer=wer, status=status_for_similarity(similarity),
         duration_seconds=round(duration, 3), inference_seconds=round(inference, 3),
@@ -180,26 +244,42 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
         missing_words=edits.missing, extra_words=edits.extra,
         substitutions=edits.substitutions,
         duplicated_words=duplicated,
-        technical_term_problems=technical_problems, possible_problem="",
+        technical_term_problems=technical_problems,
+        technical_term_accuracy=round(technical_accuracy, 2),
+        number_accuracy=round(number_accuracy, 2),
+        punctuation_difference=(re.sub(r"[\w\s\u0900-\u097f]", "", case["expected"]) !=
+                                re.sub(r"[\w\s\u0900-\u097f]", "", actual)),
+        total_processing_seconds=round(total_processing, 3),
+        first_partial_latency=(round(first_partial_latency, 3)
+                               if first_partial_latency is not None else None),
+        final_transcript_latency=round(inference, 3), partial_updates=len(partials),
+        duplicate_partials=sum(a == b for a, b in zip(partials, partials[1:])),
+        dropped_chunks=0, root_cause="", recommended_fix="", possible_problem="",
     )
     result.possible_problem = _diagnosis(result)
+    result.root_cause, result.recommended_fix = _root_cause(case, result)
     return result
 
 
-def render_markdown(results: list[EvaluationResult], missing: list[str]) -> str:
+def render_markdown(results: list[EvaluationResult], missing: list[str],
+                    baseline: dict[str, dict] | None = None) -> str:
     counts = defaultdict(int)
     by_language: dict[str, list[EvaluationResult]] = defaultdict(list)
+    by_scenario: dict[str, list[EvaluationResult]] = defaultdict(list)
+    by_difficulty: dict[str, list[EvaluationResult]] = defaultdict(list)
     for result in results:
         counts[result.status] += 1
         by_language[result.language].append(result)
+        by_scenario[result.scenario].append(result)
+        by_difficulty[result.difficulty].append(result)
     lines = ["# Speech Recognition Test Report", "",
              f"- Total configured: {len(results) + len(missing)}",
              f"- Executed: {len(results)}", f"- Missing audio: {len(missing)}",
-             f"- Passed: {counts['PASS']}",
-             f"- Passed with warning: {counts['PASS WITH WARNING']}",
+             f"- Excellent: {counts['EXCELLENT']}", f"- Passed: {counts['PASS']}",
+             f"- Warning: {counts['WARNING']}",
              f"- Failed: {counts['FAIL']}", ""]
     if results:
-        accepted = counts["PASS"] + counts["PASS WITH WARNING"]
+        accepted = counts["EXCELLENT"] + counts["PASS"] + counts["WARNING"]
         lines += [f"- Overall pass rate: {100 * accepted / len(results):.1f}%",
                   f"- Average similarity: "
                   f"{sum(item.similarity for item in results) / len(results):.1f}%",
@@ -214,6 +294,51 @@ def render_markdown(results: list[EvaluationResult], missing: list[str]) -> str:
                          f"{sum(item.similarity for item in items) / len(items):.1f}%")
             lines.append(f"- {language} average WER: "
                          f"{sum(item.wer for item in items) / len(items):.3f}")
+    if results:
+        lines += ["", "## Difficulty analysis", ""]
+        for difficulty in ("easy", "medium", "hard", "extreme"):
+            items = by_difficulty[difficulty]
+            if items:
+                lines.append(f"- {difficulty.title()}: "
+                             f"{sum(item.similarity for item in items) / len(items):.1f}% "
+                             f"(WER {sum(item.wer for item in items) / len(items):.3f})")
+        lines += ["", "## Scenario analysis", ""]
+        for scenario, items in sorted(by_scenario.items()):
+            average = sum(item.similarity for item in items) / len(items)
+            lines.append(f"### {scenario.replace('_', ' ').title()} — {average:.1f}%")
+            lines.append("")
+            for item in items:
+                lines.append(f"- {item.case_id} ({item.language}): "
+                             f"{item.similarity:.1f}% / WER {item.wer:.3f} / {item.status}")
+            lines.append("")
+        weakest = sorted(results, key=lambda item: item.similarity)[:10]
+        slowest = sorted(results, key=lambda item: item.total_processing_seconds,
+                         reverse=True)[:10]
+        causes = Counter(item.root_cause for item in results
+                         if item.status in {"WARNING", "FAIL"})
+        technical = Counter(term for item in results for term in item.technical_term_problems)
+        language_failures = [item for item in results
+                             if item.detected_language.casefold() != item.language.casefold()]
+        lines += ["## Top 10 weakest tests", ""] + [
+            f"- {item.case_id}: {item.similarity:.1f}% ({item.status})" for item in weakest]
+        lines += ["", "## Highest-latency tests", ""] + [
+            f"- {item.case_id}: {item.total_processing_seconds:.2f}s total, "
+            f"RTF {item.real_time_factor:.2f}" for item in slowest]
+        lines += ["", "## Most common root causes", ""] + [
+            f"- {cause}: {count}" for cause, count in causes.most_common()]
+        lines += ["", "## Top technical-term errors", ""] + [
+            f"- {term}: {count}" for term, count in technical.most_common(10)]
+        lines += ["", "## Language-detection failures", ""] + [
+            f"- {item.case_id}: expected {item.language}, detected {item.detected_language}"
+            for item in language_failures]
+        if baseline:
+            comparisons = [(item, item.similarity - float(baseline[item.case_id]["similarity"]))
+                           for item in results if item.case_id in baseline]
+            lines += ["", "## Before vs after regression comparison", ""]
+            for item, delta in sorted(comparisons, key=lambda pair: pair[1]):
+                before = float(baseline[item.case_id]["similarity"])
+                lines.append(f"- {item.case_id}: {before:.1f}% -> {item.similarity:.1f}% "
+                             f"({delta:+.1f} points)")
     lines += ["", "| Test | Language | Similarity | WER | Inference | RTF | Status |",
               "|---|---|---:|---:|---:|---:|---|"]
     for item in results:
@@ -221,7 +346,7 @@ def render_markdown(results: list[EvaluationResult], missing: list[str]) -> str:
                      f"{item.wer:.3f} | {item.inference_seconds:.2f}s | "
                      f"{item.real_time_factor:.2f} | {item.status} |")
     for item in results:
-        if item.status == "PASS":
+        if item.status in {"EXCELLENT", "PASS"}:
             continue
         lines += ["", f"## {item.case_id}: {item.status}", "",
                   f"**Expected:** {item.expected}", "",
@@ -231,6 +356,8 @@ def render_markdown(results: list[EvaluationResult], missing: list[str]) -> str:
                   f"**Substitutions:** {', '.join(item.substitutions) or 'None'}  ",
                   f"**Duplicated words:** {', '.join(item.duplicated_words) or 'None'}  ",
                   f"**Technical terms:** {', '.join(item.technical_term_problems) or 'None'}  ",
+                  f"**Root cause:** {item.root_cause}  ",
+                  f"**Recommended fix:** {item.recommended_fix}  ",
                   f"**Possible problem:** {item.possible_problem}"]
     if missing:
         lines += ["", "## Missing audio files", ""] + [f"- `{path}`" for path in missing]
@@ -239,27 +366,46 @@ def render_markdown(results: list[EvaluationResult], missing: list[str]) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--manifest", default="evaluation/cases.json")
-    parser.add_argument("--report", default="evaluation/report.md")
-    parser.add_argument("--json-report", default="evaluation/report.json")
+    parser.add_argument("--manifest", default="tests/expected/transcripts.json")
+    parser.add_argument("--report", default="tests/results/latest_report.md")
+    parser.add_argument("--json-report", default="tests/results/latest_report.json")
+    parser.add_argument("--csv-report", default="tests/results/latest_report.csv")
+    parser.add_argument("--baseline", help="Previous JSON report for regression comparison")
     args = parser.parse_args()
     manifest_path = Path(args.manifest).resolve()
     cases = json.loads(manifest_path.read_text(encoding="utf-8"))["cases"]
-    root = manifest_path.parent.parent
+    root = Path.cwd()
     missing = [case["audio"] for case in cases if not (root / case["audio"]).is_file()]
     runnable = [case for case in cases if case["audio"] not in missing]
+    baseline = None
+    if args.baseline:
+        previous = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
+        baseline = {item["case_id"]: item for item in previous}
     results = []
     if runnable:
         from asr_engine import WhisperModelProvider
         provider = WhisperModelProvider()
         for case in runnable:
             results.append(evaluate_case(case, root, provider))
-    Path(args.report).write_text(render_markdown(results, missing), encoding="utf-8")
+    Path(args.report).parent.mkdir(parents=True, exist_ok=True)
+    report = render_markdown(results, missing, baseline)
+    Path(args.report).write_text(report, encoding="utf-8")
     Path(args.json_report).write_text(
         json.dumps([asdict(result) for result in results], ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    print(render_markdown(results, missing))
+    with Path(args.csv_report).open("w", newline="", encoding="utf-8-sig") as stream:
+        fieldnames = list(asdict(results[0]).keys()) if results else [
+            "case_id", "audio", "language", "scenario", "difficulty", "status"]
+        writer = csv.DictWriter(stream, fieldnames=fieldnames)
+        writer.writeheader()
+        for result in results:
+            row = asdict(result)
+            for key, value in row.items():
+                if isinstance(value, list):
+                    row[key] = " | ".join(value)
+            writer.writerow(row)
+    print(report)
     if missing:
         return 2
     return 1 if any(result.status == "FAIL" for result in results) else 0

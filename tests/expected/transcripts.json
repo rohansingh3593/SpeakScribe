@@ -1,0 +1,2660 @@
+{
+  "suite": "SpeakScribe 120-case validation",
+  "version": 1,
+  "cases": [
+    {
+      "id": "CLEAR-NORMAL-SPEECH-01",
+      "scenario": "clear_normal_speech",
+      "scenario_number": 1,
+      "language": "English",
+      "difficulty": "easy",
+      "audio": "tests/speech_cases/01_normal/normal_01_en.wav",
+      "expected": "Could you send me the updated document before lunch?",
+      "features": [
+        "normal_speech"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "CLEAR-NORMAL-SPEECH-02",
+      "scenario": "clear_normal_speech",
+      "scenario_number": 1,
+      "language": "Hindi",
+      "difficulty": "easy",
+      "audio": "tests/speech_cases/01_normal/normal_02_hi.wav",
+      "expected": "कृपया दोपहर के खाने से पहले मुझे नई रिपोर्ट भेज दीजिए।",
+      "features": [
+        "normal_speech"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "CLEAR-NORMAL-SPEECH-03",
+      "scenario": "clear_normal_speech",
+      "scenario_number": 1,
+      "language": "Hinglish",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/01_normal/normal_03_hinglish.wav",
+      "expected": "Aaj stand-up ke baad hum release plan discuss karenge.",
+      "features": [
+        "normal_speech",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "CLEAR-NORMAL-SPEECH-04",
+      "scenario": "clear_normal_speech",
+      "scenario_number": 1,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/01_normal/normal_04_complex.wav",
+      "expected": "The FastAPI endpoint ready hai, bas SQLAlchemy migration review karni hai.",
+      "features": [
+        "technical_terms",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "FAST-SPEECH-01",
+      "scenario": "fast_speech",
+      "scenario_number": 2,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/02_fast/fast_01_en.wav",
+      "expected": "Please check the latest changes run every test and tell me whether the release is safe.",
+      "features": [
+        "fast_speech"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "fast",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "FAST-SPEECH-02",
+      "scenario": "fast_speech",
+      "scenario_number": 2,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/02_fast/fast_02_hi.wav",
+      "expected": "जल्दी से सभी बदलाव जाँचकर परीक्षण चलाओ और नतीजा टीम को बता दो।",
+      "features": [
+        "fast_speech"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "fast",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "FAST-SPEECH-03",
+      "scenario": "fast_speech",
+      "scenario_number": 2,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/02_fast/fast_03_hinglish.wav",
+      "expected": "Jaldi branch checkout karo tests run karo aur result Slack pe bhejo.",
+      "features": [
+        "fast_speech",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "fast",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "FAST-SPEECH-04",
+      "scenario": "fast_speech",
+      "scenario_number": 2,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/02_fast/fast_04_complex.wav",
+      "expected": "FastAPI version two point one deploy karke PR forty two ko Jenkins CI se verify karo.",
+      "features": [
+        "very_fast_speech",
+        "technical_terms",
+        "numbers",
+        "small_pauses"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "very_fast",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "internal_pause_seconds": 0.5
+      }
+    },
+    {
+      "id": "SLOW-SPEECH-01",
+      "scenario": "slow_speech",
+      "scenario_number": 3,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/03_slow/slow_01_en.wav",
+      "expected": "The deployment is moving slowly but every service remains healthy.",
+      "features": [
+        "slow_speech"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "slow",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "SLOW-SPEECH-02",
+      "scenario": "slow_speech",
+      "scenario_number": 3,
+      "language": "Hindi",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/03_slow/slow_02_hi.wav",
+      "expected": "यह प्रक्रिया धीरे चल रही है लेकिन सभी सेवाएँ सही काम कर रही हैं।",
+      "features": [
+        "slow_speech"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "slow",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "SLOW-SPEECH-03",
+      "scenario": "slow_speech",
+      "scenario_number": 3,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/03_slow/slow_03_hinglish.wav",
+      "expected": "Main slowly configuration check kar raha hoon taaki koi setting miss na ho.",
+      "features": [
+        "slow_speech",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "slow",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "SLOW-SPEECH-04",
+      "scenario": "slow_speech",
+      "scenario_number": 3,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/03_slow/slow_04_complex.wav",
+      "expected": "Please... requirements dot txt... open karo... phir... version update karo.",
+      "features": [
+        "extreme_slow_speech",
+        "unnatural_gaps",
+        "repository_words"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "extreme_slow",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "word_gap_seconds": 0.7
+      }
+    },
+    {
+      "id": "VERY-SHORT-SENTENCE-01",
+      "scenario": "very_short_sentence",
+      "scenario_number": 4,
+      "language": "English",
+      "difficulty": "easy",
+      "audio": "tests/speech_cases/04_short/short_01_en.wav",
+      "expected": "Done.",
+      "features": [
+        "short_utterance"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "VERY-SHORT-SENTENCE-02",
+      "scenario": "very_short_sentence",
+      "scenario_number": 4,
+      "language": "Hindi",
+      "difficulty": "easy",
+      "audio": "tests/speech_cases/04_short/short_02_hi.wav",
+      "expected": "काम हो गया।",
+      "features": [
+        "short_utterance"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "VERY-SHORT-SENTENCE-03",
+      "scenario": "very_short_sentence",
+      "scenario_number": 4,
+      "language": "Hinglish",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/04_short/short_03_hinglish.wav",
+      "expected": "PR merge ho gaya.",
+      "features": [
+        "short_utterance",
+        "acronyms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "VERY-SHORT-SENTENCE-04",
+      "scenario": "very_short_sentence",
+      "scenario_number": 4,
+      "language": "English",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/04_short/short_04_complex.wav",
+      "expected": "Rollback now.",
+      "features": [
+        "short_utterance",
+        "command"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LONG-CONTINUOUS-SENTENCE-01",
+      "scenario": "long_continuous_sentence",
+      "scenario_number": 5,
+      "language": "English",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/05_long/long_01_en.wav",
+      "expected": "Before we publish the release I want to review the security report verify every database migration rerun the integration tests and confirm that the monitoring dashboard shows no unexpected errors.",
+      "features": [
+        "long_speech",
+        "continuous"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LONG-CONTINUOUS-SENTENCE-02",
+      "scenario": "long_continuous_sentence",
+      "scenario_number": 5,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/05_long/long_02_hi.wav",
+      "expected": "नई सेवा जारी करने से पहले हमें सुरक्षा रिपोर्ट देखनी है डेटाबेस के सभी बदलाव जाँचने हैं पूरे परीक्षण दोबारा चलाने हैं और निगरानी प्रणाली में कोई गलती नहीं है यह सुनिश्चित करना है।",
+      "features": [
+        "long_speech",
+        "continuous"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LONG-CONTINUOUS-SENTENCE-03",
+      "scenario": "long_continuous_sentence",
+      "scenario_number": 5,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/05_long/long_03_hinglish.wav",
+      "expected": "Release publish karne se pehle main security report review karunga database migrations verify karunga aur saare integration tests dobara run karke dashboard check karunga.",
+      "features": [
+        "long_speech",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LONG-CONTINUOUS-SENTENCE-04",
+      "scenario": "long_continuous_sentence",
+      "scenario_number": 5,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/05_long/long_04_complex.wav",
+      "expected": "Python service mein FastAPI aur Pydantic upgrade karne ke baad Alembic migration run karo PostgreSQL backup verify karo Jenkins pipeline monitor karo aur Docker image Kubernetes cluster mein deploy karo.",
+      "features": [
+        "long_speech",
+        "technical_terms",
+        "chunk_boundary"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "MULTIPLE-SENTENCES-01",
+      "scenario": "multiple_sentences",
+      "scenario_number": 6,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/06_multi_sentence/multi_sentence_01_en.wav",
+      "expected": "The build completed successfully. I reviewed the logs. We can deploy this evening.",
+      "features": [
+        "multiple_sentences",
+        "punctuation"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "MULTIPLE-SENTENCES-02",
+      "scenario": "multiple_sentences",
+      "scenario_number": 6,
+      "language": "Hindi",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/06_multi_sentence/multi_sentence_02_hi.wav",
+      "expected": "बिल्ड सफल हो गया। मैंने लॉग देख लिए हैं। हम आज शाम इसे जारी कर सकते हैं।",
+      "features": [
+        "multiple_sentences",
+        "punctuation"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "MULTIPLE-SENTENCES-03",
+      "scenario": "multiple_sentences",
+      "scenario_number": 6,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/06_multi_sentence/multi_sentence_03_hinglish.wav",
+      "expected": "Build complete ho gaya. Logs clean hain. Ab deployment start kar sakte hain.",
+      "features": [
+        "multiple_sentences",
+        "language_switch",
+        "punctuation"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "MULTIPLE-SENTENCES-04",
+      "scenario": "multiple_sentences",
+      "scenario_number": 6,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/06_multi_sentence/multi_sentence_04_complex.wav",
+      "expected": "PR open hai. Reviewer available nahi hai. Meanwhile pytest run karo. Failure aaye to Jira update karna. Phir mujhe call karo.",
+      "features": [
+        "multiple_sentences",
+        "technical_terms",
+        "history_preservation"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "SPEECH-WITH-PAUSES-01",
+      "scenario": "speech_with_pauses",
+      "scenario_number": 7,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/07_pauses/pauses_01_en.wav",
+      "expected": "I checked the pull request... and everything looks fine.",
+      "features": [
+        "natural_pauses"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "internal_pause_seconds": 0.5
+      }
+    },
+    {
+      "id": "SPEECH-WITH-PAUSES-02",
+      "scenario": "speech_with_pauses",
+      "scenario_number": 7,
+      "language": "Hindi",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/07_pauses/pauses_02_hi.wav",
+      "expected": "मैंने रिपोर्ट देखी... और सभी आँकड़े सही हैं।",
+      "features": [
+        "natural_pauses"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "internal_pause_seconds": 0.5
+      }
+    },
+    {
+      "id": "SPEECH-WITH-PAUSES-03",
+      "scenario": "speech_with_pauses",
+      "scenario_number": 7,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/07_pauses/pauses_03_hinglish.wav",
+      "expected": "Pipeline check ki... aur ab deployment safe lag raha hai.",
+      "features": [
+        "natural_pauses",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "internal_pause_seconds": 0.5
+      }
+    },
+    {
+      "id": "SPEECH-WITH-PAUSES-04",
+      "scenario": "speech_with_pauses",
+      "scenario_number": 7,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/07_pauses/pauses_04_complex.wav",
+      "expected": "SQLAlchemy migration verify ki... phir PostgreSQL logs dekhe... and both look clean.",
+      "features": [
+        "multiple_pauses",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "SMALL-WORD-PAUSES-01",
+      "scenario": "small_word_pauses",
+      "scenario_number": 8,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/08_micro_pauses/micro_pauses_01_en.wav",
+      "expected": "Please check each file before you commit the branch.",
+      "features": [
+        "small_word_pauses"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "word_gap_seconds": 0.12
+      }
+    },
+    {
+      "id": "SMALL-WORD-PAUSES-02",
+      "scenario": "small_word_pauses",
+      "scenario_number": 8,
+      "language": "Hindi",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/08_micro_pauses/micro_pauses_02_hi.wav",
+      "expected": "हर फ़ाइल को ध्यान से देखकर फिर बदलाव जमा करना।",
+      "features": [
+        "small_word_pauses"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "word_gap_seconds": 0.12
+      }
+    },
+    {
+      "id": "SMALL-WORD-PAUSES-03",
+      "scenario": "small_word_pauses",
+      "scenario_number": 8,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/08_micro_pauses/micro_pauses_03_hinglish.wav",
+      "expected": "Har config value check karke phir service restart karna.",
+      "features": [
+        "small_word_pauses",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "word_gap_seconds": 0.12
+      }
+    },
+    {
+      "id": "SMALL-WORD-PAUSES-04",
+      "scenario": "small_word_pauses",
+      "scenario_number": 8,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/08_micro_pauses/micro_pauses_04_complex.wav",
+      "expected": "API response time point five seconds hai but Redis cache hit rate ninety percent hai.",
+      "features": [
+        "small_word_pauses",
+        "numbers",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "word_gap_seconds": 0.12
+      }
+    },
+    {
+      "id": "LONG-PAUSE-INSIDE-SENTENCE-01",
+      "scenario": "long_pause_inside_sentence",
+      "scenario_number": 9,
+      "language": "English",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/09_long_pause/long_pause_01_en.wav",
+      "expected": "I need to update SQLAlchemy... before creating the pull request.",
+      "features": [
+        "long_pause",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "internal_pause_seconds": 2.5
+      }
+    },
+    {
+      "id": "LONG-PAUSE-INSIDE-SENTENCE-02",
+      "scenario": "long_pause_inside_sentence",
+      "scenario_number": 9,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/09_long_pause/long_pause_02_hi.wav",
+      "expected": "मुझे डेटाबेस अपडेट करना है... उसके बाद नई रिपोर्ट बनानी है।",
+      "features": [
+        "long_pause"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "internal_pause_seconds": 2.5
+      }
+    },
+    {
+      "id": "LONG-PAUSE-INSIDE-SENTENCE-03",
+      "scenario": "long_pause_inside_sentence",
+      "scenario_number": 9,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/09_long_pause/long_pause_03_hinglish.wav",
+      "expected": "Pehle tests complete karne hain... phir main PR approve karunga.",
+      "features": [
+        "long_pause",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "internal_pause_seconds": 2.5
+      }
+    },
+    {
+      "id": "LONG-PAUSE-INSIDE-SENTENCE-04",
+      "scenario": "long_pause_inside_sentence",
+      "scenario_number": 9,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/09_long_pause/long_pause_04_complex.wav",
+      "expected": "Jenkins pipeline green thi... three second pause... lekin production deploy abhi hold par hai.",
+      "features": [
+        "long_pause",
+        "technical_terms",
+        "numbers"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "internal_pause_seconds": 2.5
+      }
+    },
+    {
+      "id": "LOW-VOLUME-01",
+      "scenario": "low_volume",
+      "scenario_number": 10,
+      "language": "English",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/10_low_volume/low_volume_01_en.wav",
+      "expected": "Please lower the notification volume during the meeting.",
+      "features": [
+        "low_volume"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": -18,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LOW-VOLUME-02",
+      "scenario": "low_volume",
+      "scenario_number": 10,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/10_low_volume/low_volume_02_hi.wav",
+      "expected": "कृपया बैठक के दौरान धीरे बोलिए और दरवाज़ा बंद कर दीजिए।",
+      "features": [
+        "low_volume"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": -18,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LOW-VOLUME-03",
+      "scenario": "low_volume",
+      "scenario_number": 10,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/10_low_volume/low_volume_03_hinglish.wav",
+      "expected": "Main quietly bol raha hoon because meeting already start ho chuki hai.",
+      "features": [
+        "low_volume",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": -18,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LOW-VOLUME-04",
+      "scenario": "low_volume",
+      "scenario_number": 10,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/10_low_volume/low_volume_04_complex.wav",
+      "expected": "Low voice mein bata raha hoon Redis down hai aur Kafka lag increase ho raha hai.",
+      "features": [
+        "low_volume",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": -24,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LOUD-SPEECH-01",
+      "scenario": "loud_speech",
+      "scenario_number": 11,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/11_loud/loud_01_en.wav",
+      "expected": "Stop the deployment immediately and check the production logs.",
+      "features": [
+        "loud_speech"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 9,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LOUD-SPEECH-02",
+      "scenario": "loud_speech",
+      "scenario_number": 11,
+      "language": "Hindi",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/11_loud/loud_02_hi.wav",
+      "expected": "तुरंत सर्वर बंद करो और सुरक्षा टीम को बुलाओ।",
+      "features": [
+        "loud_speech"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 9,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LOUD-SPEECH-03",
+      "scenario": "loud_speech",
+      "scenario_number": 11,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/11_loud/loud_03_hinglish.wav",
+      "expected": "Deployment abhi stop karo and rollback start karo.",
+      "features": [
+        "loud_speech",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 9,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LOUD-SPEECH-04",
+      "scenario": "loud_speech",
+      "scenario_number": 11,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/11_loud/loud_04_complex.wav",
+      "expected": "Jenkins pipeline cancel karo CPU hundred percent pe hai.",
+      "features": [
+        "loud_speech",
+        "clipping",
+        "technical_terms",
+        "numbers"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 15,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "BACKGROUND-NOISE-01",
+      "scenario": "background_noise",
+      "scenario_number": 12,
+      "language": "English",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/12_background_noise/background_noise_01_en.wav",
+      "expected": "The train is late but I will join the review call from my phone.",
+      "features": [
+        "light_background_noise"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "light_room",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "BACKGROUND-NOISE-02",
+      "scenario": "background_noise",
+      "scenario_number": 12,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/12_background_noise/background_noise_02_hi.wav",
+      "expected": "बाहर लोगों की आवाज़ है फिर भी मैं रिपोर्ट समझा रहा हूँ।",
+      "features": [
+        "conversation_noise"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "conversation",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "BACKGROUND-NOISE-03",
+      "scenario": "background_noise",
+      "scenario_number": 12,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/12_background_noise/background_noise_03_hinglish.wav",
+      "expected": "Traffic noise ke beech main client ko project status explain kar raha hoon.",
+      "features": [
+        "traffic_noise",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "traffic",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "BACKGROUND-NOISE-04",
+      "scenario": "background_noise",
+      "scenario_number": 12,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/12_background_noise/background_noise_04_complex.wav",
+      "expected": "Noisy office mein Docker build aur Jenkins failure ka root cause discuss karte hain.",
+      "features": [
+        "office_noise",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "office",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "FAN-ROOM-NOISE-01",
+      "scenario": "fan_room_noise",
+      "scenario_number": 13,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/13_fan_noise/fan_noise_01_en.wav",
+      "expected": "The room fan is running while I dictate this short update.",
+      "features": [
+        "fan_noise_low"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "fan_low",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "FAN-ROOM-NOISE-02",
+      "scenario": "fan_room_noise",
+      "scenario_number": 13,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/13_fan_noise/fan_noise_02_hi.wav",
+      "expected": "पंखे की आवाज़ के बावजूद मेरी बात साफ सुनाई देनी चाहिए।",
+      "features": [
+        "fan_noise_medium"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "fan_medium",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "FAN-ROOM-NOISE-03",
+      "scenario": "fan_room_noise",
+      "scenario_number": 13,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/13_fan_noise/fan_noise_03_hinglish.wav",
+      "expected": "Fan full speed pe hai but microphone ko meri voice capture karni chahiye.",
+      "features": [
+        "fan_noise_high",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "fan_high",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "FAN-ROOM-NOISE-04",
+      "scenario": "fan_room_noise",
+      "scenario_number": 13,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/13_fan_noise/fan_noise_04_complex.wav",
+      "expected": "Continuous room noise mein silence VAD ko false trigger nahi karna chahiye.",
+      "features": [
+        "fan_noise_high",
+        "vad",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "fan_high",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "KEYBOARD-OFFICE-NOISE-01",
+      "scenario": "keyboard_office_noise",
+      "scenario_number": 14,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/14_office_noise/office_noise_01_en.wav",
+      "expected": "I am typing while explaining the changes in this document.",
+      "features": [
+        "keyboard_noise"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "keyboard",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "KEYBOARD-OFFICE-NOISE-02",
+      "scenario": "keyboard_office_noise",
+      "scenario_number": 14,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/14_office_noise/office_noise_02_hi.wav",
+      "expected": "माउस की आवाज़ के बीच मैं आज के काम की जानकारी दे रहा हूँ।",
+      "features": [
+        "mouse_clicks"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "mouse_clicks",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "KEYBOARD-OFFICE-NOISE-03",
+      "scenario": "keyboard_office_noise",
+      "scenario_number": 14,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/14_office_noise/office_noise_03_hinglish.wav",
+      "expected": "Office discussion chal rahi hai and main release notes dictate kar raha hoon.",
+      "features": [
+        "office_noise",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "office",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "KEYBOARD-OFFICE-NOISE-04",
+      "scenario": "keyboard_office_noise",
+      "scenario_number": 14,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/14_office_noise/office_noise_04_complex.wav",
+      "expected": "Keyboard typing ke saath FastAPI endpoint aur GitHub PR review kar raha hoon.",
+      "features": [
+        "keyboard_noise",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "keyboard",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "PRONUNCIATION-ACCENT-01",
+      "scenario": "pronunciation_accent",
+      "scenario_number": 15,
+      "language": "English",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/15_accent/accent_01_en.wav",
+      "expected": "Please schedule the project review after the data analysis meeting.",
+      "features": [
+        "indian_english_pronunciation"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "PRONUNCIATION-ACCENT-02",
+      "scenario": "pronunciation_accent",
+      "scenario_number": 15,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/15_accent/accent_02_hi.wav",
+      "expected": "अलग क्षेत्रीय उच्चारण में भी यह पूरा वाक्य सही पहचाना जाना चाहिए।",
+      "features": [
+        "hindi_pronunciation"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "PRONUNCIATION-ACCENT-03",
+      "scenario": "pronunciation_accent",
+      "scenario_number": 15,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/15_accent/accent_03_hinglish.wav",
+      "expected": "Maine project ka architecture aur deployment process explain kiya.",
+      "features": [
+        "hinglish_pronunciation"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "PRONUNCIATION-ACCENT-04",
+      "scenario": "pronunciation_accent",
+      "scenario_number": 15,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/15_accent/accent_04_complex.wav",
+      "expected": "Indian English pronunciation mein Kubernetes PostgreSQL aur SQLAlchemy clearly recognize karo.",
+      "features": [
+        "accent",
+        "technical_pronunciation"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "NUMBERS-01",
+      "scenario": "numbers",
+      "scenario_number": 16,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/16_numbers/numbers_01_en.wav",
+      "expected": "The total is 12,345 and the success rate is 75 percent.",
+      "features": [
+        "numbers"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "NUMBERS-02",
+      "scenario": "numbers",
+      "scenario_number": 16,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/16_numbers/numbers_02_hi.wav",
+      "expected": "इस परियोजना का बजट ₹25,000 है और काम 10.5 दिन में होगा।",
+      "features": [
+        "numbers",
+        "currency"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "NUMBERS-03",
+      "scenario": "numbers",
+      "scenario_number": 16,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/16_numbers/numbers_03_hinglish.wav",
+      "expected": "Version 2.0.51 ko build number 1234 se compare karo.",
+      "features": [
+        "numbers",
+        "versions"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "NUMBERS-04",
+      "scenario": "numbers",
+      "scenario_number": 16,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/16_numbers/numbers_04_complex.wav",
+      "expected": "API returned 123456 records CPU 75 percent aur latency 10.5 milliseconds thi.",
+      "features": [
+        "numbers",
+        "acronyms",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "DATES-AND-TIME-01",
+      "scenario": "dates_and_time",
+      "scenario_number": 17,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/17_datetime/datetime_01_en.wav",
+      "expected": "The review is on August 9, 2026 at 10:30 AM.",
+      "features": [
+        "date",
+        "time"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "DATES-AND-TIME-02",
+      "scenario": "dates_and_time",
+      "scenario_number": 17,
+      "language": "Hindi",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/17_datetime/datetime_02_hi.wav",
+      "expected": "कल शाम साढ़े दस बजे हमारी टीम की बैठक है।",
+      "features": [
+        "date",
+        "time"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "DATES-AND-TIME-03",
+      "scenario": "dates_and_time",
+      "scenario_number": 17,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/17_datetime/datetime_03_hinglish.wav",
+      "expected": "Meeting kal 10:30 AM pe hai and demo Monday ko hoga.",
+      "features": [
+        "date",
+        "time",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "DATES-AND-TIME-04",
+      "scenario": "dates_and_time",
+      "scenario_number": 17,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/17_datetime/datetime_04_complex.wav",
+      "expected": "Release 9th August 2026 ko 3:45 PM pe schedule karo.",
+      "features": [
+        "date",
+        "time",
+        "numbers"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "NAMES-01",
+      "scenario": "names",
+      "scenario_number": 18,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/18_names/names_01_en.wav",
+      "expected": "Rohan and Priyanka will meet Michael after lunch.",
+      "features": [
+        "indian_names",
+        "international_names"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "NAMES-02",
+      "scenario": "names",
+      "scenario_number": 18,
+      "language": "Hindi",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/18_names/names_02_hi.wav",
+      "expected": "अनन्या ने विवेक और आरव को बैठक में बुलाया है।",
+      "features": [
+        "indian_names"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "NAMES-03",
+      "scenario": "names",
+      "scenario_number": 18,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/18_names/names_03_hinglish.wav",
+      "expected": "Neha ne Daniel ko bola ki Sameer review join karega.",
+      "features": [
+        "names",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "NAMES-04",
+      "scenario": "names",
+      "scenario_number": 18,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/18_names/names_04_complex.wav",
+      "expected": "Aarav Arnav aur Armaan ke approvals alag alag Jira tickets par hain.",
+      "features": [
+        "similar_names",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "TECHNICAL-TERMS-01",
+      "scenario": "technical_terms",
+      "scenario_number": 19,
+      "language": "English",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/19_technical/technical_01_en.wav",
+      "expected": "Python and PyQt6 use faster whisper through CTranslate2 for transcription.",
+      "features": [
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "TECHNICAL-TERMS-02",
+      "scenario": "technical_terms",
+      "scenario_number": 19,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/19_technical/technical_02_hi.wav",
+      "expected": "आज PostgreSQL और MongoDB की बैकअप प्रक्रिया जाँचनी है।",
+      "features": [
+        "technical_terms",
+        "hindi"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "TECHNICAL-TERMS-03",
+      "scenario": "technical_terms",
+      "scenario_number": 19,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/19_technical/technical_03_hinglish.wav",
+      "expected": "FastAPI ke Pydantic models ko pytest se validate karke Redis cache clear karo.",
+      "features": [
+        "technical_terms",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "TECHNICAL-TERMS-04",
+      "scenario": "technical_terms",
+      "scenario_number": 19,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/19_technical/technical_04_complex.wav",
+      "expected": "SQLAlchemy Alembic PostgreSQL Docker Kubernetes Jenkins Kafka Redis CTranslate2 aur MarianMT ek hi architecture mein integrate hain.",
+      "features": [
+        "many_technical_terms",
+        "fast_speech"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "fast",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "ACRONYMS-01",
+      "scenario": "acronyms",
+      "scenario_number": 20,
+      "language": "English",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/20_acronyms/acronyms_01_en.wav",
+      "expected": "The REST API returns JSON over HTTPS and stores logs in AWS.",
+      "features": [
+        "acronyms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "ACRONYMS-02",
+      "scenario": "acronyms",
+      "scenario_number": 20,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/20_acronyms/acronyms_02_hi.wav",
+      "expected": "CPU और RAM की जानकारी CI रिपोर्ट में जोड़ दीजिए।",
+      "features": [
+        "acronyms",
+        "hindi"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "ACRONYMS-03",
+      "scenario": "acronyms",
+      "scenario_number": 20,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/20_acronyms/acronyms_03_hinglish.wav",
+      "expected": "PR merge se pehle CI CD pipeline aur SQL query check karo.",
+      "features": [
+        "acronyms",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "ACRONYMS-04",
+      "scenario": "acronyms",
+      "scenario_number": 20,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/20_acronyms/acronyms_04_complex.wav",
+      "expected": "GPU CPU RAM HTTP HTTPS URL JSON YAML API aur AWS metrics dashboard pe dikhao.",
+      "features": [
+        "many_acronyms",
+        "fast_speech"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "fast",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "URLS-REPOSITORY-WORDS-01",
+      "scenario": "urls_repository_words",
+      "scenario_number": 21,
+      "language": "English",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/21_repository/repository_01_en.wav",
+      "expected": "Open github dot com and read the README dot md file.",
+      "features": [
+        "spoken_url",
+        "repository_words"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "URLS-REPOSITORY-WORDS-02",
+      "scenario": "urls_repository_words",
+      "scenario_number": 21,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/21_repository/repository_02_hi.wav",
+      "expected": "मेन डॉट पाई फ़ाइल खोलकर रिक्वायरमेंट्स डॉट टी एक्स टी जाँचिए।",
+      "features": [
+        "repository_words",
+        "hindi"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "URLS-REPOSITORY-WORDS-03",
+      "scenario": "urls_repository_words",
+      "scenario_number": 21,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/21_repository/repository_03_hinglish.wav",
+      "expected": "Feature slash SQLAlchemy upgrade branch ko GitHub pe push karo.",
+      "features": [
+        "repository_path",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "URLS-REPOSITORY-WORDS-04",
+      "scenario": "urls_repository_words",
+      "scenario_number": 21,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/21_repository/repository_04_complex.wav",
+      "expected": "API slash users slash ID endpoint ka YAML config README dot md mein document karo.",
+      "features": [
+        "url_path",
+        "acronyms",
+        "repository_words"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "REPEATED-WORDS-01",
+      "scenario": "repeated_words",
+      "scenario_number": 22,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/22_repeated/repeated_01_en.wav",
+      "expected": "I need to to update the version before release.",
+      "features": [
+        "intentional_repetition"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "REPEATED-WORDS-02",
+      "scenario": "repeated_words",
+      "scenario_number": 22,
+      "language": "Hindi",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/22_repeated/repeated_02_hi.wav",
+      "expected": "मैं मैं पहले रिपोर्ट देखूँगा फिर जवाब दूँगा।",
+      "features": [
+        "intentional_repetition"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "REPEATED-WORDS-03",
+      "scenario": "repeated_words",
+      "scenario_number": 22,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/22_repeated/repeated_03_hinglish.wav",
+      "expected": "PR PR number twenty four ab ready hai.",
+      "features": [
+        "self_correction",
+        "numbers"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "REPEATED-WORDS-04",
+      "scenario": "repeated_words",
+      "scenario_number": 22,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/22_repeated/repeated_04_complex.wav",
+      "expected": "No no rollback nahi deployment deployment ko sirf pause karo.",
+      "features": [
+        "multiple_repetitions",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "SIMILAR-SOUNDING-WORDS-01",
+      "scenario": "similar_sounding_words",
+      "scenario_number": 23,
+      "language": "English",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/23_homophones/homophones_01_en.wav",
+      "expected": "Write the right address there in their registration form.",
+      "features": [
+        "homophones"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "SIMILAR-SOUNDING-WORDS-02",
+      "scenario": "similar_sounding_words",
+      "scenario_number": 23,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/23_homophones/homophones_02_hi.wav",
+      "expected": "कल की बात और काल के अर्थ को संदर्भ से पहचानो।",
+      "features": [
+        "similar_sounding_hindi"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "SIMILAR-SOUNDING-WORDS-03",
+      "scenario": "similar_sounding_words",
+      "scenario_number": 23,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/23_homophones/homophones_03_hinglish.wav",
+      "expected": "Do files ko server par upload karne ke liye right command write karo.",
+      "features": [
+        "homophones",
+        "numbers",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "SIMILAR-SOUNDING-WORDS-04",
+      "scenario": "similar_sounding_words",
+      "scenario_number": 23,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/23_homophones/homophones_04_complex.wav",
+      "expected": "Their team wahan hai so right note write karke two reviewers ko bhejo.",
+      "features": [
+        "multiple_homophones",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LANGUAGE-SWITCHING-01",
+      "scenario": "language_switching",
+      "scenario_number": 24,
+      "language": "Hinglish",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/24_switch/switch_01_en.wav",
+      "expected": "I checked the pipeline but abhi dependency issue resolve nahi hua hai.",
+      "features": [
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LANGUAGE-SWITCHING-02",
+      "scenario": "language_switching",
+      "scenario_number": 24,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/24_switch/switch_02_hi.wav",
+      "expected": "Report ready hai but I need one more approval before publishing it.",
+      "features": [
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LANGUAGE-SWITCHING-03",
+      "scenario": "language_switching",
+      "scenario_number": 24,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/24_switch/switch_03_hinglish.wav",
+      "expected": "आज build fail हुआ because the database connection timed out.",
+      "features": [
+        "script_switch",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "LANGUAGE-SWITCHING-04",
+      "scenario": "language_switching",
+      "scenario_number": 24,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/24_switch/switch_04_complex.wav",
+      "expected": "Please rollback karo क्योंकि production API लगातार errors return kar rahi hai.",
+      "features": [
+        "multiple_scripts",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "MULTIPLE-LANGUAGE-SWITCHES-01",
+      "scenario": "multiple_language_switches",
+      "scenario_number": 25,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/25_multi_switch/multi_switch_01_en.wav",
+      "expected": "Aaj morning mein Jenkins check kiya pipeline fail thi so I updated the dependency.",
+      "features": [
+        "multiple_language_switches"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "MULTIPLE-LANGUAGE-SWITCHES-02",
+      "scenario": "multiple_language_switches",
+      "scenario_number": 25,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/25_multi_switch/multi_switch_02_hi.wav",
+      "expected": "The client called लेकिन issue अभी reproduce नहीं हो रहा so we need more logs.",
+      "features": [
+        "multiple_scripts",
+        "multiple_language_switches"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "MULTIPLE-LANGUAGE-SWITCHES-03",
+      "scenario": "multiple_language_switches",
+      "scenario_number": 25,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/25_multi_switch/multi_switch_03_hinglish.wav",
+      "expected": "Pehle API green thi then अचानक latency बढ़ी but ab Redis restart ke baad it looks stable.",
+      "features": [
+        "multiple_language_switches",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "MULTIPLE-LANGUAGE-SWITCHES-04",
+      "scenario": "multiple_language_switches",
+      "scenario_number": 25,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/25_multi_switch/multi_switch_04_complex.wav",
+      "expected": "मैंने branch update की then tests failed so ab main rollback करूंगा and ask for reviewer approval.",
+      "features": [
+        "multiple_language_switches",
+        "context"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "NATURAL-HINGLISH-01",
+      "scenario": "natural_hinglish",
+      "scenario_number": 26,
+      "language": "Hinglish",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/26_natural_hinglish/natural_hinglish_01_en.wav",
+      "expected": "Kal main office thoda late aaunga because subah appointment hai.",
+      "features": [
+        "natural_hinglish"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "NATURAL-HINGLISH-02",
+      "scenario": "natural_hinglish",
+      "scenario_number": 26,
+      "language": "Hinglish",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/26_natural_hinglish/natural_hinglish_02_hi.wav",
+      "expected": "Lunch ke baad ek quick call kar lete hain phir main market chala jaunga.",
+      "features": [
+        "natural_hinglish"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "NATURAL-HINGLISH-03",
+      "scenario": "natural_hinglish",
+      "scenario_number": 26,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/26_natural_hinglish/natural_hinglish_03_hinglish.wav",
+      "expected": "Mujhe lag raha hai aaj traffic zyada hoga so stand-up phone se join karunga.",
+      "features": [
+        "natural_hinglish",
+        "conversation"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "NATURAL-HINGLISH-04",
+      "scenario": "natural_hinglish",
+      "scenario_number": 26,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/26_natural_hinglish/natural_hinglish_04_complex.wav",
+      "expected": "Yaar deployment ka scene clear nahi hai but tension mat lo main logs check kar raha hoon.",
+      "features": [
+        "colloquial_hinglish",
+        "technical_terms"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "ENGLISH-TERMS-INSIDE-HINDI-01",
+      "scenario": "english_terms_inside_hindi",
+      "scenario_number": 27,
+      "language": "Hindi",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/27_english_in_hindi/english_in_hindi_01_en.wav",
+      "expected": "आज मैंने SQLAlchemy dependency update की।",
+      "features": [
+        "technical_terms",
+        "script_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "ENGLISH-TERMS-INSIDE-HINDI-02",
+      "scenario": "english_terms_inside_hindi",
+      "scenario_number": 27,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/27_english_in_hindi/english_in_hindi_02_hi.wav",
+      "expected": "Jenkins pipeline दोबारा run करके Docker image verify करो।",
+      "features": [
+        "technical_terms",
+        "script_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "ENGLISH-TERMS-INSIDE-HINDI-03",
+      "scenario": "english_terms_inside_hindi",
+      "scenario_number": 27,
+      "language": "Hindi",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/27_english_in_hindi/english_in_hindi_03_hinglish.wav",
+      "expected": "FastAPI endpoint का response PostgreSQL database में save हो रहा है।",
+      "features": [
+        "technical_terms",
+        "script_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "ENGLISH-TERMS-INSIDE-HINDI-04",
+      "scenario": "english_terms_inside_hindi",
+      "scenario_number": 27,
+      "language": "Hindi",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/27_english_in_hindi/english_in_hindi_04_complex.wav",
+      "expected": "Python service में Pydantic model update करके pytest चलाओ और GitHub PR पर result लिखो।",
+      "features": [
+        "many_technical_terms",
+        "script_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "PUNCTUATION-END-DETECTION-01",
+      "scenario": "punctuation_end_detection",
+      "scenario_number": 28,
+      "language": "English",
+      "difficulty": "easy",
+      "audio": "tests/speech_cases/28_punctuation/punctuation_01_en.wav",
+      "expected": "The service is ready.",
+      "features": [
+        "statement",
+        "punctuation"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "PUNCTUATION-END-DETECTION-02",
+      "scenario": "punctuation_end_detection",
+      "scenario_number": 28,
+      "language": "Hindi",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/28_punctuation/punctuation_02_hi.wav",
+      "expected": "क्या आज की रिपोर्ट तैयार है?",
+      "features": [
+        "question",
+        "punctuation"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "PUNCTUATION-END-DETECTION-03",
+      "scenario": "punctuation_end_detection",
+      "scenario_number": 28,
+      "language": "Hinglish",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/28_punctuation/punctuation_03_hinglish.wav",
+      "expected": "Build complete hai, deployment start karun?",
+      "features": [
+        "question",
+        "comma",
+        "language_switch"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "PUNCTUATION-END-DETECTION-04",
+      "scenario": "punctuation_end_detection",
+      "scenario_number": 28,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/28_punctuation/punctuation_04_complex.wav",
+      "expected": "First check the logs. Agar errors nahi hain, deploy karo. But monitoring on rakhna.",
+      "features": [
+        "multiple_sentences",
+        "punctuation",
+        "commands"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "SILENCE-BOUNDARIES-01",
+      "scenario": "silence_boundaries",
+      "scenario_number": 29,
+      "language": "English",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/29_silence/silence_01_en.wav",
+      "expected": "The recording starts after three seconds of silence.",
+      "features": [
+        "silence_before"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 3.0,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "SILENCE-BOUNDARIES-02",
+      "scenario": "silence_boundaries",
+      "scenario_number": 29,
+      "language": "Hindi",
+      "difficulty": "medium",
+      "audio": "tests/speech_cases/29_silence/silence_02_hi.wav",
+      "expected": "मेरी बात खत्म होने के बाद तीन सेकंड की चुप्पी है।",
+      "features": [
+        "silence_after"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 3.0
+      }
+    },
+    {
+      "id": "SILENCE-BOUNDARIES-03",
+      "scenario": "silence_boundaries",
+      "scenario_number": 29,
+      "language": "Hinglish",
+      "difficulty": "hard",
+      "audio": "tests/speech_cases/29_silence/silence_03_hinglish.wav",
+      "expected": "Silence ke baad short PR approved bolo and phir silence rakho.",
+      "features": [
+        "silence_before",
+        "silence_after",
+        "short_utterance"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 3.0,
+        "trailing_silence_seconds": 3.0
+      }
+    },
+    {
+      "id": "SILENCE-BOUNDARIES-04",
+      "scenario": "silence_boundaries",
+      "scenario_number": 29,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/29_silence/silence_04_complex.wav",
+      "expected": "Long silence ke baad SQLAlchemy migration complete hai and Jenkins green hai.",
+      "features": [
+        "long_silence",
+        "technical_terms",
+        "hallucination_check"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 5.0,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "COMBINED-REAL-WORLD-01",
+      "scenario": "combined_real_world",
+      "scenario_number": 30,
+      "language": "English",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/30_combined/combined_01_en.wav",
+      "expected": "Please review PR 184 check SQLAlchemy 2.0.51 rerun the CI pipeline and pause briefly before asking Rohan for approval.",
+      "features": [
+        "fast_speech",
+        "technical_terms",
+        "numbers",
+        "small_pauses"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "fast",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "internal_pause_seconds": 0.5
+      }
+    },
+    {
+      "id": "COMBINED-REAL-WORLD-02",
+      "scenario": "combined_real_world",
+      "scenario_number": 30,
+      "language": "Hindi",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/30_combined/combined_02_hi.wav",
+      "expected": "रोहन ने नौ अगस्त को कम आवाज़ और कार्यालय के शोर के बीच बताया कि लंबी डेटाबेस रिपोर्ट शाम साढ़े दस बजे तक तैयार हो जाएगी।",
+      "features": [
+        "long_speech",
+        "names",
+        "date",
+        "time",
+        "low_volume",
+        "background_noise"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": -18,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5
+      }
+    },
+    {
+      "id": "COMBINED-REAL-WORLD-03",
+      "scenario": "combined_real_world",
+      "scenario_number": 30,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/30_combined/combined_03_hinglish.wav",
+      "expected": "Aaj Jenkins CI fail hui so maine SQLAlchemy version 2.0.51 update kiya but ab PR approval chahiye.",
+      "features": [
+        "multiple_language_switches",
+        "technical_terms",
+        "acronyms",
+        "numbers",
+        "natural_pauses"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "none",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "internal_pause_seconds": 0.5
+      }
+    },
+    {
+      "id": "COMBINED-REAL-WORLD-04",
+      "scenario": "combined_real_world",
+      "scenario_number": 30,
+      "language": "Hinglish",
+      "difficulty": "extreme",
+      "audio": "tests/speech_cases/30_combined/combined_04_complex.wav",
+      "expected": "So Rohan maine morning mein PR 184 check kiya but Jenkins CI pipeline 10:30 AM pe fail ho gayi because SQLAlchemy 2.0.51 ka conflict tha... ab requirements dot txt update karke tests run kar raha hoon and everything passes to commit push karke Priyanka se review mangunga.",
+      "features": [
+        "fast_and_normal",
+        "office_noise",
+        "technical_terms",
+        "multiple_language_switches",
+        "numbers",
+        "date_time",
+        "names",
+        "acronyms",
+        "hesitation",
+        "short_pauses",
+        "long_pause",
+        "multiple_sentences"
+      ],
+      "streaming": true,
+      "performance": "balanced",
+      "audio_profile": {
+        "speaking_rate": "normal",
+        "gain_db": 0,
+        "noise": "office",
+        "leading_silence_seconds": 0.3,
+        "trailing_silence_seconds": 0.5,
+        "internal_pause_seconds": 2.5
+      }
+    }
+  ]
+}
