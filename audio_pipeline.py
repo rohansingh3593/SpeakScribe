@@ -110,7 +110,17 @@ class SpeechBufferWorker:
 
     def _submit(self, job: ASRJob) -> None:
         if job.final:
-            # Finals are never intentionally evicted; wait briefly for inference.
+            # A final supersedes queued partials for its utterance. Evict those
+            # obsolete hypotheses so CPU fallback does not spend several seconds
+            # decoding text that the final will immediately replace.
+            try:
+                pending = self.asr_queue.get_nowait()
+            except Empty:
+                pending = None
+            if pending is not None and pending.final:
+                self.asr_queue.put_nowait(pending)
+
+            # Existing finals are never evicted; wait briefly for inference.
             deadline = time.monotonic() + 0.5 if self.stop_event.is_set() else None
             while deadline is None or time.monotonic() < deadline:
                 try:
@@ -161,7 +171,8 @@ class SpeechBufferWorker:
             speech.append(frame)
             silence = 0.0 if active else silence + frame_seconds
             duration = len(speech) * frame_seconds
-            if now - last_partial >= self.config.partial_interval:
+            if (duration >= self.config.min_partial_duration and
+                    now - last_partial >= self.config.partial_interval):
                 window_frames = round(self.config.rolling_window_seconds / frame_seconds)
                 audio = np.concatenate(speech[-window_frames:])
                 self._submit(ASRJob(audio, False, self.utterance_id, now))

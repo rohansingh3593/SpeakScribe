@@ -17,7 +17,7 @@ def test_energy_detector_hysteresis_and_reset():
 
 def test_default_detector_accepts_quiet_laptop_microphone_speech():
     detector = EnergySpeechDetector(AppConfig())
-    assert detector.classify(np.full(480, 0.006, dtype=np.float32))[0]
+    assert detector.classify(np.full(480, 0.002, dtype=np.float32))[0]
 
 
 def test_quiet_speech_is_centered_and_amplified_for_whisper():

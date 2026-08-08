@@ -41,25 +41,26 @@ class AppConfig:
     # Laptop microphone levels are commonly well below 0.01 after SoundCard's
     # float conversion. These remain above a typical quiet-room noise floor but
     # do not discard softer Hindi phonemes before Whisper sees them.
-    speech_threshold: float = 0.004
-    silence_threshold: float = 0.0025
-    silence_duration: float = 0.55
-    min_speech_duration: float = 0.20
+    speech_threshold: float = 0.0015
+    silence_threshold: float = 0.0008
+    silence_duration: float = 0.70
+    min_speech_duration: float = 0.30
     pre_speech_duration: float = 0.20
     partial_interval: float = 0.50
+    min_partial_duration: float = 0.80
     max_utterance_seconds: float = 15.0
     rolling_window_seconds: float = 5.0
     overlap_seconds: float = 0.35
     max_audio_queue: int = 100
-    max_asr_queue: int = 2
+    max_asr_queue: int = 1
     context_sentences: int = 2
-    model_size: str = "small"
+    model_size: str = "base"
     device: str = "auto"
     compute_type: str = "auto"
     performance_mode: PerformanceMode = PerformanceMode.BALANCED
     vad_filter: bool = False  # RMS VAD already runs before Whisper.
-    no_speech_threshold: float = 0.65
-    min_avg_logprob: float = -1.25
+    no_speech_threshold: float = 0.85
+    min_avg_logprob: float = -2.0
     script_mode: str = "original"
     language_mode: str = "auto"
     translation_enabled: bool = False

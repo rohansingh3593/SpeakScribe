@@ -61,10 +61,21 @@ class WhisperEngine:
             vad_filter=self.config.vad_filter, word_timestamps=False,
         )
         accepted = []
+        segment_count = 0
         for segment in segments:
+            segment_count += 1
             if (segment.no_speech_prob <= self.config.no_speech_threshold and
                     segment.avg_logprob >= self.config.min_avg_logprob):
                 accepted.append(segment.text)
+            else:
+                log_print(
+                    "[ASR] rejected segment "
+                    f"no_speech={segment.no_speech_prob:.2f} "
+                    f"avg_logprob={segment.avg_logprob:.2f} "
+                    f"text={segment.text.strip()!r}"
+                )
+        if not accepted:
+            log_print(f"[ASR] no usable segments returned (segments={segment_count})")
         text = clean_text(" ".join(accepted), final=job.final)
         text = apply_script_mode(text, self.config.script_mode, self.config.vocabulary)
         mode = detect_language(text, getattr(info, "language", None))

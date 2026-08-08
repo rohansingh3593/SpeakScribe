@@ -473,7 +473,7 @@ Likewise, `indic-transliteration` is loaded only when Latin or Devanagari script
 conversion is selected. Language detection, cleanup, and the default `Original`
 script mode do not require the optional transliteration package during import.
 
-For quiet laptop microphone input, the default RMS speech threshold is `0.004`.
+For quiet laptop microphone input, the default RMS speech threshold is `0.0015`.
 Accepted speech is DC-centered and receives capped gain before Whisper inference;
 silence still remains excluded by the RMS detector. Detection logs include the
 measured RMS value so the thresholds can be tuned for a particular microphone.
@@ -482,6 +482,11 @@ Whisper begins loading in a background thread as soon as the GUI opens and the
 same model instance is reused across Start/Stop cycles. Live partials run every
 `0.5` seconds with greedy decoding; the selected Fast/Balanced/Accurate profile is
 applied to final correction so partial speed does not sacrifice final accuracy.
+
+The default multilingual model is `base`, which is substantially more responsive
+than `small` on CPU-only machines. Only one pending ASR job is retained, finals
+replace obsolete queued partials, and confidence-filter rejections are logged with
+their no-speech and log-probability values instead of silently producing a blank UI.
 
 ---
 
