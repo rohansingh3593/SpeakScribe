@@ -22,6 +22,29 @@ Run all available production recordings and generate Markdown, JSON, and CSV rep
 python evaluation_runner.py
 ```
 
+Missing files are synthesized automatically through the platform TTS backend. To
+prepare audio only, or intentionally recreate files already marked synthetic, use:
+
+```bash
+python tests/generate_test_audio.py
+python tests/generate_test_audio.py --regenerate
+```
+
+The one-command generation → validation → ASR → report workflow is:
+
+```bash
+python tests/run_speech_suite.py
+```
+
+TTS uses installed operating-system voices and never imports the ASR engine. Windows
+uses `System.Speech` (install a `hi-IN` voice for Hindi; Hinglish prefers `hi-IN` then
+`en-IN`), macOS uses `say` with Samantha/Lekha, and Linux requires `espeak-ng` or
+`espeak`. A missing language-capable backend is reported as `TTS_GENERATION_ERROR`,
+not as zero ASR accuracy. Generation metadata is stored in
+`generated_audio_manifest.json`; an existing unmanaged WAV is treated as human and is
+never overwritten, while `--regenerate` only recreates files previously marked
+synthetic.
+
 Run the 120 mandatory parametrized pytest regressions:
 
 ```powershell
@@ -29,13 +52,13 @@ python -m pytest tests/test_transcription.py
 ```
 
 There is no opt-in flag and no skip path. Pytest always collects all 120 cases. Every
-missing WAV fails its corresponding case before Faster-Whisper is imported, so the
-report shows exactly which recordings are absent and an incomplete corpus can never
-look like a successful regression run.
+missing WAV is generated and validated before Faster-Whisper is imported. If the TTS
+backend or a compatible language voice is unavailable, the case fails explicitly as
+`TTS_GENERATION_ERROR` rather than being skipped or counted as an ASR accuracy failure.
 
-Exit code 2 from the report runner means recordings are missing. That is an incomplete
-dataset, not a successful recognition run. Real accuracy, latency, and fix/retest
-claims must only be made from actual WAV inference.
+Exit code 2 means generation was disabled and recordings remain missing; exit code 3
+means TTS generation failed. Neither is a successful recognition run. Real accuracy,
+latency, and fix/retest claims must only be made from actual WAV inference.
 
 For fix/retest regression comparison, preserve the previous JSON report and run:
 

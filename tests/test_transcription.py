@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from evaluation_runner import evaluate_case
+from tests.audio_generation import ensure_audio
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,9 +30,19 @@ def model_provider():
 def test_prerecorded_transcription(case):
     audio = ROOT / case["audio"]
     if not audio.is_file():
+        generation = ensure_audio(case, ROOT)
+        if generation.status == "TTS_GENERATION_ERROR":
+            pytest.fail(
+                f"TTS_GENERATION_ERROR {case['id']}: {generation.error}",
+                pytrace=False,
+            )
+        case = {**case, "audio_source": generation.audio_source}
+    else:
+        generation = ensure_audio(case, ROOT)
+        case = {**case, "audio_source": generation.audio_source}
+    if not audio.is_file():
         pytest.fail(
-            f"Required target recording is missing: {audio}. "
-            "All 120 WAV files are mandatory; missing cases are failures, never skips.",
+            f"INVALID_AUDIO: generation reported success but WAV is missing: {audio}",
             pytrace=False,
         )
     result = evaluate_case(case, ROOT, model_provider())

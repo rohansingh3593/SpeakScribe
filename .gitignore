@@ -8,4 +8,5 @@ test_audio/*.wav
 debug_audio/
 tests/speech_cases/**/*.wav
 tests/results/latest_report.*
+tests/generated/
 .venv/

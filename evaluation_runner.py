@@ -35,6 +35,7 @@ class EvaluationResult:
     case_id: str
     audio: str
     language: str
+    audio_source: str
     scenario: str
     difficulty: str
     expected: str
@@ -235,6 +236,7 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
                         if count > max(1, expected_counts[word]) + 1)
     result = EvaluationResult(
         case_id=case["id"], audio=case["audio"], language=case["language"],
+        audio_source=case.get("audio_source", "human"),
         scenario=case.get("scenario", "unspecified"),
         difficulty=case.get("difficulty", "unspecified"),
         expected=case["expected"], actual=actual, detected_language=detected,
@@ -267,11 +269,13 @@ def render_markdown(results: list[EvaluationResult], missing: list[str],
     by_language: dict[str, list[EvaluationResult]] = defaultdict(list)
     by_scenario: dict[str, list[EvaluationResult]] = defaultdict(list)
     by_difficulty: dict[str, list[EvaluationResult]] = defaultdict(list)
+    by_source: dict[str, list[EvaluationResult]] = defaultdict(list)
     for result in results:
         counts[result.status] += 1
         by_language[result.language].append(result)
         by_scenario[result.scenario].append(result)
         by_difficulty[result.difficulty].append(result)
+        by_source[result.audio_source].append(result)
     lines = ["# Speech Recognition Test Report", "",
              f"- Total configured: {len(results) + len(missing)}",
              f"- Executed: {len(results)}", f"- Missing audio: {len(missing)}",
@@ -293,6 +297,13 @@ def render_markdown(results: list[EvaluationResult], missing: list[str],
             lines.append(f"- {language} average similarity: "
                          f"{sum(item.similarity for item in items) / len(items):.1f}%")
             lines.append(f"- {language} average WER: "
+                         f"{sum(item.wer for item in items) / len(items):.3f}")
+    for source in ("human", "synthetic"):
+        items = by_source[source]
+        if items:
+            lines.append(f"- {source.title()} audio average similarity: "
+                         f"{sum(item.similarity for item in items) / len(items):.1f}%")
+            lines.append(f"- {source.title()} audio average WER: "
                          f"{sum(item.wer for item in items) / len(items):.3f}")
     if results:
         lines += ["", "## Difficulty analysis", ""]
@@ -339,10 +350,11 @@ def render_markdown(results: list[EvaluationResult], missing: list[str],
                 before = float(baseline[item.case_id]["similarity"])
                 lines.append(f"- {item.case_id}: {before:.1f}% -> {item.similarity:.1f}% "
                              f"({delta:+.1f} points)")
-    lines += ["", "| Test | Language | Similarity | WER | Inference | RTF | Status |",
-              "|---|---|---:|---:|---:|---:|---|"]
+    lines += ["", "| Test | Language | Source | Similarity | WER | Inference | RTF | Status |",
+              "|---|---|---|---:|---:|---:|---:|---|"]
     for item in results:
-        lines.append(f"| {item.audio} | {item.language} | {item.similarity:.1f}% | "
+        lines.append(f"| {item.audio} | {item.language} | {item.audio_source.title()} | "
+                     f"{item.similarity:.1f}% | "
                      f"{item.wer:.3f} | {item.inference_seconds:.2f}s | "
                      f"{item.real_time_factor:.2f} | {item.status} |")
     for item in results:
@@ -371,10 +383,21 @@ def main() -> int:
     parser.add_argument("--json-report", default="tests/results/latest_report.json")
     parser.add_argument("--csv-report", default="tests/results/latest_report.csv")
     parser.add_argument("--baseline", help="Previous JSON report for regression comparison")
+    parser.add_argument("--no-generate", action="store_true",
+                        help="Do not synthesize missing WAV files before evaluation")
     args = parser.parse_args()
     manifest_path = Path(args.manifest).resolve()
     cases = json.loads(manifest_path.read_text(encoding="utf-8"))["cases"]
     root = Path.cwd()
+    generation_errors = []
+    if not args.no_generate:
+        from tests.audio_generation import generate_all
+        generation = generate_all(cases, root)
+        sources = {record.audio_file: record.audio_source for record in generation}
+        cases = [{**case, "audio_source": sources.get(case["audio"], "human")}
+                 for case in cases]
+        generation_errors = [record for record in generation
+                             if record.status == "TTS_GENERATION_ERROR"]
     missing = [case["audio"] for case in cases if not (root / case["audio"]).is_file()]
     runnable = [case for case in cases if case["audio"] not in missing]
     baseline = None
@@ -389,6 +412,10 @@ def main() -> int:
             results.append(evaluate_case(case, root, provider))
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     report = render_markdown(results, missing, baseline)
+    if generation_errors:
+        report += "\n## TTS generation errors\n\n" + "\n".join(
+            f"- TTS_GENERATION_ERROR {record.case_id}: {record.error}"
+            for record in generation_errors) + "\n"
     Path(args.report).write_text(report, encoding="utf-8")
     Path(args.json_report).write_text(
         json.dumps([asdict(result) for result in results], ensure_ascii=False, indent=2),
@@ -406,6 +433,8 @@ def main() -> int:
                     row[key] = " | ".join(value)
             writer.writerow(row)
     print(report)
+    if generation_errors:
+        return 3
     if missing:
         return 2
     return 1 if any(result.status == "FAIL" for result in results) else 0

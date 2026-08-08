@@ -529,6 +529,16 @@ and real-time factor. Similarity of at least 90% is excellent, 80–89.99% passe
 the command exit with status 2; no synthetic transcript is presented as a real ASR
 result.
 
+Missing validation WAVs are generated independently from expected text using Windows
+SAPI, macOS `say`, or `espeak-ng`/`espeak`, then transformed deterministically using
+their audio profiles. Existing human recordings are never overwritten. Synthetic and
+human sources are labeled and summarized separately. Run `python
+tests/run_speech_suite.py` for generation followed by all ASR evaluation and reports.
+Generated assets are validated for WAV structure, duration, sample rate conversion,
+and non-silent RMS before ASR runs. Deterministic seed 42 drives noise/office/fan/
+keyboard transforms, while metadata controls rate, volume, and silence. TTS failures
+remain infrastructure errors rather than being counted as failed recognition.
+
 The comprehensive suite is stored in `tests/expected/transcripts.json`: exactly 120
 cases across 30 scenarios, with four distinct English/Hindi/Hinglish/edge variations
 per scenario. Recordings belong in the tracked `tests/speech_cases/01_normal` through
