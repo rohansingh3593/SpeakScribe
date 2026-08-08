@@ -588,6 +588,9 @@ python main.py
 
 The application will initialize the speech-recognition model and display the PyQt6 interface.
 
+Model preload alone does not start microphone capture. Click **Start Listening**;
+otherwise shutdown logs explicitly state that no listening/transcription session ran.
+
 Click:
 
 ```text

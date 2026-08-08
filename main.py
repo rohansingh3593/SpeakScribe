@@ -131,6 +131,7 @@ class MainWindow(QWidget):
         self.signals = SpeechSignals()
         self.controller = SpeechController(self.signals)
         self.final_history: list[str] = []
+        self.ever_started = False
         self._build_ui()
         self._connect_signals()
         self.controller.preload_model()
@@ -202,6 +203,7 @@ class MainWindow(QWidget):
         self.signals.translation_ready.connect(self.show_translation)
 
     def start_listening(self) -> None:
+        self.ever_started = True
         mode = PerformanceMode(self.performance.currentText().lower())
         recognition_modes = {
             "Hindi / Hinglish": "hi", "Auto": "auto", "English": "en",
@@ -257,6 +259,11 @@ class MainWindow(QWidget):
         self.translation.clear()
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if not self.ever_started:
+            log_print(
+                "Application closed before Start Listening was clicked; "
+                "no microphone capture or transcription session ran"
+            )
         self.controller.stop()
         log_print("Application shutdown")
         event.accept()

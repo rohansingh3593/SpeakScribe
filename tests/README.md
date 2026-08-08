@@ -29,6 +29,10 @@ $env:SPEAKSCRIBE_RUN_AUDIO_TESTS="1"
 python -m pytest tests/test_transcription.py
 ```
 
+Without that environment variable, pytest reports one suite-level skip instead of
+120 misleading per-case skips. With opt-in enabled, any missing WAV is a test failure,
+not a skip, so an incomplete corpus cannot look like a successful regression run.
+
 Exit code 2 from the report runner means recordings are missing. That is an incomplete
 dataset, not a successful recognition run. Real accuracy, latency, and fix/retest
 claims must only be made from actual WAV inference.
