@@ -50,10 +50,11 @@ class AppConfig:
     silence_threshold: float = 0.002
     speech_start_frames: int = 3
     silence_duration: float = 1.50
-    min_speech_duration: float = 0.80
+    min_speech_duration: float = 0.50
     pre_speech_duration: float = 0.20
     partial_interval: float = 0.50
     min_partial_duration: float = 1.20
+    min_partial_speech_duration: float = 0.50
     max_utterance_seconds: float = 15.0
     rolling_window_seconds: float = 5.0
     overlap_seconds: float = 0.35
@@ -67,6 +68,7 @@ class AppConfig:
     vad_filter: bool = False  # RMS VAD already runs before Whisper.
     no_speech_threshold: float = 0.85
     min_avg_logprob: float = -2.0
+    max_compression_ratio: float = 2.4
     script_mode: str = "original"
     # Short Hindi/Hinglish chunks are frequently misdetected as English. Hindi
     # decoding still preserves embedded English technical terms.

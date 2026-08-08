@@ -77,7 +77,10 @@ class WhisperEngine:
         # A long prompt on sub-second audio can itself seed hallucinations (for
         # example repeated URLs). Partials prioritize the actual audio; finals use
         # vocabulary and recent context for correction.
-        prompt = final_prompt if job.final else None
+        # Context prompts improve long technical dictation, but on the supplied
+        # short/noisy clips they seeded URL-like hallucinations. Use them only
+        # after enough acoustic evidence has accumulated.
+        prompt = final_prompt if job.final and len(job.audio) >= 3 * self.config.sample_rate else None
         language = None if self.config.language_mode == "auto" else self.config.language_mode
         prepared = prepare_audio_for_asr(job.audio)
         raw_stats = audio_statistics(job.audio)
@@ -86,6 +89,7 @@ class WhisperEngine:
             "[ASR-INPUT] "
             f"utterance={job.utterance_id} final={job.final} "
             f"duration={len(job.audio) / self.config.sample_rate:.2f}s "
+            f"voiced={job.speech_seconds if job.speech_seconds is not None else -1:.2f}s "
             f"raw_rms={raw_stats['rms']:.6f} raw_peak={raw_stats['peak']:.6f} "
             f"raw_mean={raw_stats['mean']:.6f} zeros={raw_stats['zero_ratio']:.3f} "
             f"prepared_rms={prepared_stats['rms']:.6f} "
@@ -109,7 +113,7 @@ class WhisperEngine:
             vad_filter=self.config.vad_filter, word_timestamps=False,
             no_speech_threshold=self.config.no_speech_threshold,
             log_prob_threshold=self.config.min_avg_logprob,
-            compression_ratio_threshold=2.4,
+            compression_ratio_threshold=self.config.max_compression_ratio,
         )
         accepted = []
         segment_count = 0
@@ -124,13 +128,15 @@ class WhisperEngine:
                 f"raw={segment.text!r}"
             )
             if (segment.no_speech_prob <= self.config.no_speech_threshold and
-                    segment.avg_logprob >= self.config.min_avg_logprob):
+                    segment.avg_logprob >= self.config.min_avg_logprob and
+                    segment.compression_ratio <= self.config.max_compression_ratio):
                 accepted.append(segment.text)
             else:
                 log_print(
                     "[ASR] rejected segment "
                     f"no_speech={segment.no_speech_prob:.2f} "
                     f"avg_logprob={segment.avg_logprob:.2f} "
+                    f"compression={segment.compression_ratio:.2f} "
                     f"text={segment.text.strip()!r}"
                 )
         if not accepted:

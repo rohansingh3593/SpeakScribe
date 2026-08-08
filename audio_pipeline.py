@@ -20,22 +20,15 @@ class ASRJob:
     final: bool
     utterance_id: int
     captured_at: float
+    speech_seconds: float | None = None
 
 
 def prepare_audio_for_asr(audio: np.ndarray) -> np.ndarray:
-    """Remove DC and safely lift quiet, VAD-approved microphone speech.
-
-    Whisper is tolerant of normal recording levels, so loud input is untouched.
-    Quiet microphone input is capped at 10x gain to avoid turning tiny numerical
-    noise into full-scale audio.
-    """
+    """Remove DC offset without amplifying silence or microphone noise."""
     prepared = np.asarray(audio, dtype=np.float32)
     if prepared.size == 0:
         return prepared
     prepared = prepared - np.mean(prepared, dtype=np.float64)
-    peak = float(np.max(np.abs(prepared)))
-    if 1e-5 < peak < 0.25:
-        prepared = prepared * min(10.0, 0.8 / peak)
     return np.clip(prepared, -1.0, 1.0).astype(np.float32, copy=False)
 
 
@@ -170,6 +163,7 @@ class SpeechBufferWorker:
         log_print(
             f"[QUEUE] submit final={job.final} utterance={job.utterance_id} "
             f"audio={len(job.audio) / self.config.sample_rate:.2f}s "
+            f"voiced={job.speech_seconds if job.speech_seconds is not None else -1:.2f}s "
             f"asr_queue_before={self.asr_queue.qsize()}"
         )
         if job.final:
@@ -215,6 +209,7 @@ class SpeechBufferWorker:
         frame_seconds = self.config.frame_ms / 1000
         pre = deque(maxlen=max(1, round(self.config.pre_speech_duration / frame_seconds)))
         speech: list[np.ndarray] = []
+        voiced_duration = 0.0
         silence = 0.0
         last_partial = 0.0
         diagnostic_rms: list[float] = []
@@ -237,7 +232,8 @@ class SpeechBufferWorker:
                     f"continue_threshold={self.config.silence_threshold:.6f} "
                     f"start_frames={self.detector.start_frames}/{self.config.speech_start_frames} "
                     f"speaking={self.detector.speaking} active={active} "
-                    f"buffer={len(speech) * frame_seconds:.2f}s silence={silence:.2f}s "
+                    f"buffer={len(speech) * frame_seconds:.2f}s voiced={voiced_duration:.2f}s "
+                    f"silence={silence:.2f}s "
                     f"audio_queue={self.audio_queue.qsize()} asr_queue={self.asr_queue.qsize()}"
                 )
                 diagnostic_rms.clear()
@@ -247,29 +243,35 @@ class SpeechBufferWorker:
                 if active:
                     self.utterance_id += 1
                     speech.extend(pre)
+                    voiced_duration = self.config.speech_start_frames * frame_seconds
                     pre.clear()
                     silence = 0.0
                     last_partial = now
                     log_print(f"Speech detected: utterance={self.utterance_id} rms={rms:.5f}")
                 continue
             speech.append(frame)
+            if active:
+                voiced_duration += frame_seconds
             silence = 0.0 if active else silence + frame_seconds
             duration = len(speech) * frame_seconds
             if (duration >= self.config.min_partial_duration and
+                    voiced_duration >= self.config.min_partial_speech_duration and
                     now - last_partial >= self.config.partial_interval):
                 window_frames = round(self.config.rolling_window_seconds / frame_seconds)
                 audio = np.concatenate(speech[-window_frames:])
-                self._submit(ASRJob(audio, False, self.utterance_id, now))
+                self._submit(ASRJob(audio, False, self.utterance_id, now,
+                                    voiced_duration))
                 last_partial = now
             ended = silence >= self.config.silence_duration
             if ended or duration >= self.config.max_utterance_seconds:
-                usable = duration - silence
+                usable = voiced_duration
                 if usable >= self.config.min_speech_duration:
                     trim = round(silence * self.config.sample_rate)
                     audio = np.concatenate(speech)
                     if trim:
                         audio = audio[:-trim]
-                    self._submit(ASRJob(audio, True, self.utterance_id, now))
+                    self._submit(ASRJob(audio, True, self.utterance_id, now,
+                                        voiced_duration))
                     log_print(f"Speech ended: utterance={self.utterance_id} duration={usable:.2f}s")
                 else:
                     log_print(
@@ -277,11 +279,12 @@ class SpeechBufferWorker:
                         f"usable={usable:.2f}s minimum={self.config.min_speech_duration:.2f}s"
                     )
                 speech.clear()
+                voiced_duration = 0.0
                 silence = 0.0
                 self.detector.reset()
         # A stop click may arrive mid-utterance. Preserve that speech as a final
         # job rather than silently throwing away the last words.
         duration = len(speech) * frame_seconds
-        if duration >= self.config.min_speech_duration:
+        if voiced_duration >= self.config.min_speech_duration:
             self._submit(ASRJob(np.concatenate(speech), True, self.utterance_id,
-                                time.monotonic()))
+                                time.monotonic(), voiced_duration))

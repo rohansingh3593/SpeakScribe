@@ -26,12 +26,12 @@ def test_default_detector_accepts_quiet_laptop_microphone_speech():
     assert detector.classify(frame)[0]
 
 
-def test_quiet_speech_is_centered_and_amplified_for_whisper():
+def test_quiet_speech_is_centered_without_amplifying_noise():
     time_axis = np.linspace(0, 4 * np.pi, 1600, dtype=np.float32)
     quiet_speech = 0.02 + 0.01 * np.sin(time_axis)
     prepared = prepare_audio_for_asr(quiet_speech)
     assert abs(float(np.mean(prepared))) < 1e-5
-    assert float(np.max(np.abs(prepared))) > 0.09
+    assert 0.009 < float(np.max(np.abs(prepared))) < 0.011
     assert float(np.max(np.abs(prepared))) <= 1.0
 
 

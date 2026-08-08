@@ -474,7 +474,7 @@ conversion is selected. Language detection, cleanup, and the default `Original`
 script mode do not require the optional transliteration package during import.
 
 For quiet laptop microphone input, the default RMS speech threshold is `0.003`.
-Accepted speech is DC-centered and receives capped gain before Whisper inference;
+Accepted speech is DC-centered without boosting quiet noise before Whisper inference;
 silence still remains excluded by the RMS detector. Detection logs include the
 measured RMS value so the thresholds can be tuned for a particular microphone.
 
@@ -556,10 +556,17 @@ Interpret the diagnostic prefixes in order:
 1. `[AUDIO] asr_rms` near zero or a high `zeros` ratio indicates capture/device data.
 2. `[VAD] rms_max` below `start_threshold` explains why no utterance opens.
 3. Missing `[QUEUE]` lines after `speaking=True` identifies segmentation timing.
-4. `[ASR-INPUT]` compares raw and gain-conditioned audio reaching Whisper.
+4. `[ASR-INPUT]` compares raw and DC-centered audio reaching Whisper.
 5. `[ASR-SEGMENT]` shows the model's unmodified text and confidence values.
 6. `[ASR-TEXT]` shows whether confidence, corruption, or script processing emptied it.
 7. A nonempty `[ASR-TEXT] post_script` without `[GUI]` identifies Qt delivery.
+
+The diagnostics identified three concrete causes in the supplied run: partial jobs
+were created from buffers containing too little voiced speech, preprocessing boosted
+those mostly-silent buffers by up to 10x, and post-filtering accepted Whisper segments
+with compression ratios above 20. Audio preprocessing now only removes DC offset,
+partial/final eligibility uses accumulated active-speech time, compression ratio is
+enforced after decoding, and final prompts require at least three seconds of audio.
 
 ---
 
