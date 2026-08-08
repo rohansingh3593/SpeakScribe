@@ -459,9 +459,10 @@ python -m pytest
 ```
 
 The included `pytest.ini` explicitly adds the repository root to Python's import
-path. This keeps top-level application modules such as `audio_pipeline` and
-`text_processing` importable with both `pytest` and `python -m pytest`, including
-pytest 9 on Windows.
+path. `tests/conftest.py` applies the same setup before test collection for
+Windows `pytest.exe`, IDE test runners, and wrappers that override pytest's
+configuration. This keeps top-level application modules such as `audio_pipeline`
+and `text_processing` importable with both `pytest` and `python -m pytest`.
 
 ---
 
