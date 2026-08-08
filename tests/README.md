@@ -45,6 +45,11 @@ not as zero ASR accuracy. Generation metadata is stored in
 never overwritten, while `--regenerate` only recreates files previously marked
 synthetic.
 
+On Windows, inspect available voices with `python tests/generate_test_audio.py
+--list-voices`. If `hi-IN` is absent, install **Hindi → Language options → Speech**
+from Windows Settings, or run the elevated PowerShell command printed by the generator.
+Latin-only Hinglish can fall back to an installed English voice; Devanagari never does.
+
 Run the 120 mandatory parametrized pytest regressions:
 
 ```powershell

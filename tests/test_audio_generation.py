@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from tests import audio_generation
 
 
@@ -53,3 +55,27 @@ def test_tts_failure_is_not_classified_as_asr_failure(monkeypatch, tmp_path):
     assert record.status == "TTS_GENERATION_ERROR"
     assert "no Hindi voice" in record.error
 
+
+def test_windows_voice_preferences_protect_devanagari_and_allow_latin_hinglish():
+    assert audio_generation.windows_voice_preferences("Hindi", "आज काम करो") == ["hi-IN"]
+    assert audio_generation.windows_voice_preferences("Hinglish", "आज deploy karo") == ["hi-IN"]
+    assert audio_generation.windows_voice_preferences("Hinglish", "Aaj deploy karo") == [
+        "hi-IN", "en-IN", "en-US", "en-GB",
+    ]
+
+
+def test_windows_tts_failure_includes_powershell_detail_and_install_hint(
+        monkeypatch, tmp_path):
+    class FailedProcess:
+        returncode = 1
+        stdout = ""
+        stderr = "No installed compatible voice for: hi-IN"
+
+    monkeypatch.setattr(audio_generation.subprocess, "run", lambda *_args, **_kwargs: FailedProcess())
+    with pytest.raises(RuntimeError) as failure:
+        audio_generation._run_windows_sapi(
+            "आज काम पूरा करना है", "Hindi", tmp_path / "hindi.wav", 0, 0,
+        )
+    message = str(failure.value)
+    assert "No installed compatible voice for: hi-IN" in message
+    assert "Add-WindowsCapability" in message

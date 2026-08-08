@@ -9,14 +9,19 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tests.audio_generation import MANIFEST_PATH, generate_all
+from tests.audio_generation import MANIFEST_PATH, generate_all, list_windows_voices
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--regenerate", action="store_true",
                         help="Regenerate files previously marked synthetic; never overwrite human files")
+    parser.add_argument("--list-voices", action="store_true",
+                        help="List installed Windows SAPI voices and exit")
     args = parser.parse_args()
+    if args.list_voices:
+        print(list_windows_voices())
+        return 0
     root = ROOT
     cases = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))["cases"]
     results = generate_all(cases, root, args.regenerate)

@@ -15,6 +15,7 @@ import wave
 TEST_RANDOM_SEED = 42
 MANIFEST_PATH = Path(__file__).parent / "expected" / "transcripts.json"
 GENERATED_MANIFEST = Path(__file__).parent / "generated_audio_manifest.json"
+DEVANAGARI_PATTERN = range(0x0900, 0x0980)
 
 
 @dataclass
@@ -50,13 +51,21 @@ def _rate_for(profile: dict) -> int:
             "fast": 4, "very_fast": 8}[profile.get("speaking_rate", "normal")]
 
 
+def windows_voice_preferences(language: str, text: str) -> list[str]:
+    """Choose only voices capable of the script; Latin Hinglish may use English."""
+    if language == "English":
+        return ["en-IN", "en-US", "en-GB"]
+    has_devanagari = any(ord(character) in DEVANAGARI_PATTERN for character in text)
+    if language == "Hindi" or has_devanagari:
+        return ["hi-IN"]
+    # Latin-script Hinglish remains intelligible with an Indian/English fallback
+    # when the optional Windows Hindi speech capability is not installed.
+    return ["hi-IN", "en-IN", "en-US", "en-GB"]
+
+
 def _run_windows_sapi(text: str, language: str, output: Path,
                       rate: int, variation: int) -> str:
-    culture_preferences = {
-        "English": ["en-IN", "en-US", "en-GB"],
-        "Hindi": ["hi-IN"],
-        "Hinglish": ["hi-IN", "en-IN"],
-    }[language]
+    culture_preferences = windows_voice_preferences(language, text)
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary)
         text_path = directory / "text.txt"
@@ -88,9 +97,37 @@ def _run_windows_sapi(text: str, language: str, output: Path,
         )
         completed = subprocess.run(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script_path)],
-            check=True, capture_output=True, text=True, timeout=180,
+            check=False, capture_output=True, text=True, timeout=180,
         )
-        return completed.stdout.strip().splitlines()[-1]
+        if completed.returncode:
+            detail = (completed.stderr or completed.stdout or "unknown PowerShell error").strip()
+            hint = (
+                " Install the Windows Hindi speech capability from Settings > Time & language > "
+                "Language & region > Hindi > Language options > Speech, or run an elevated "
+                "PowerShell: Add-WindowsCapability -Online -Name Language.Speech~~~hi-IN~0.0.1.0"
+                if "hi-IN" in culture_preferences else ""
+            )
+            raise RuntimeError(f"Windows SAPI TTS failed: {detail}.{hint}")
+        output_lines = completed.stdout.strip().splitlines()
+        if not output_lines:
+            raise RuntimeError("Windows SAPI completed without reporting the selected voice")
+        return output_lines[-1]
+
+
+def list_windows_voices() -> str:
+    script = (
+        "Add-Type -AssemblyName System.Speech; "
+        "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+        "$s.GetInstalledVoices() | ForEach-Object {"
+        "Write-Output ($_.VoiceInfo.Name+' | '+$_.VoiceInfo.Culture.Name)}; $s.Dispose()"
+    )
+    completed = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", script], check=False,
+        capture_output=True, text=True, timeout=60,
+    )
+    if completed.returncode:
+        raise RuntimeError((completed.stderr or completed.stdout).strip())
+    return completed.stdout.strip()
 
 
 def _run_espeak(text: str, language: str, output: Path, rate: int,
