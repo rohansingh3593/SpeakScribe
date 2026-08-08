@@ -61,10 +61,15 @@ The evaluator defaults to the multilingual `small` model and accurate decoding. 
 diagnostic run. Generated WAV metadata is versioned; audio made by an older generator
 is rebuilt automatically so stale English-voice Hindi files are not silently reused.
 
-Every case below 60% is automatically run one additional time; the best real ASR result
-is retained and reports include `attempts`, `initial_similarity`, and
-`retry_improvement`. Set `$env:SPEAKSCRIBE_FAILED_RETRIES = "2"` to allow two retries,
+Every case below 60% is automatically run one additional time for diagnostic evidence.
+The initial failure remains the official result even if a retry passes; the report marks
+that case `UNSTABLE_RESULT` and records attempts, initial similarity, best retry, and
+retry improvement. Set `$env:SPEAKSCRIBE_FAILED_RETRIES = "2"` to allow two retries,
 or `"0"` to disable them. Retries never substitute expected text or change test data.
+
+Reports preserve explicit `NO_TRANSCRIPTION`, `WRONG_LANGUAGE`, `HIGH_LATENCY`,
+`DUPLICATE_OUTPUT`, `DROPPED_SPEECH`, and `UNSTABLE_RESULT` quality flags. Accuracy
+status is never upgraded merely because a retry happened to produce a better result.
 
 The cleanup runs in a `finally` block, including when generation or evaluation fails.
 To explicitly delete human recordings too, use `--cleanup-after all`. Without a cleanup

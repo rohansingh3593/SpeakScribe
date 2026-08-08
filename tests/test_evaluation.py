@@ -32,20 +32,24 @@ def test_format_duration_is_readable_and_stable():
     assert format_duration(3661) == "01:01:01"
 
 
-def test_failed_case_is_retried_and_best_result_is_retained():
+def test_failed_case_is_retried_without_hiding_initial_failure():
     results = iter([
-        SimpleNamespace(status="FAIL", similarity=40.0),
-        SimpleNamespace(status="PASS", similarity=85.0),
+        SimpleNamespace(status="FAIL", similarity=40.0, quality_flags=[]),
+        SimpleNamespace(status="PASS", similarity=85.0, quality_flags=[]),
     ])
 
     result = evaluate_case_with_retries(
         {}, None, None, retries=1, evaluator=lambda *_args: next(results),
     )
 
-    assert result.status == "PASS"
+    assert result.status == "FAIL"
+    assert result.similarity == 40.0
     assert result.attempts == 2
     assert result.initial_similarity == 40.0
     assert result.retry_improvement == 45.0
+    assert result.best_retry_similarity == 85.0
+    assert result.best_retry_status == "PASS"
+    assert "UNSTABLE_RESULT" in result.quality_flags
 
 
 def test_retry_limit_prevents_unbounded_failed_runs():
@@ -53,7 +57,7 @@ def test_retry_limit_prevents_unbounded_failed_runs():
 
     def failed(*_args):
         calls.append(1)
-        return SimpleNamespace(status="FAIL", similarity=20.0)
+        return SimpleNamespace(status="FAIL", similarity=20.0, quality_flags=[])
 
     result = evaluate_case_with_retries({}, None, None, retries=2, evaluator=failed)
 

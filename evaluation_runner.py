@@ -77,6 +77,9 @@ class EvaluationResult:
     attempts: int
     initial_similarity: float
     retry_improvement: float
+    best_retry_similarity: float | None
+    best_retry_status: str | None
+    quality_flags: list[str]
 
 
 def normalize_transcript(text: str) -> str:
@@ -274,7 +277,18 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
         duplicate_partials=sum(a == b for a, b in zip(partials, partials[1:])),
         dropped_chunks=0, root_cause="", recommended_fix="", possible_problem="",
         attempts=1, initial_similarity=similarity, retry_improvement=0.0,
+        best_retry_similarity=None, best_retry_status=None, quality_flags=[],
     )
+    if not actual.strip():
+        result.quality_flags.append("NO_TRANSCRIPTION")
+    if detected.casefold() != case["language"].casefold() and case["language"] != "Hinglish":
+        result.quality_flags.append("WRONG_LANGUAGE")
+    if result.final_transcript_latency > 2.0:
+        result.quality_flags.append("HIGH_LATENCY")
+    if result.duplicate_partials:
+        result.quality_flags.append("DUPLICATE_OUTPUT")
+    if result.dropped_chunks:
+        result.quality_flags.append("DROPPED_SPEECH")
     result.possible_problem = _diagnosis(result)
     result.root_cause, result.recommended_fix = _root_cause(case, result)
     return result
@@ -282,19 +296,25 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
 
 def evaluate_case_with_retries(case: dict, root: Path, provider, retries: int = 1,
                                evaluator=evaluate_case) -> EvaluationResult:
-    """Rerun a failed case and retain the best genuine ASR result."""
-    best = evaluator(case, root, provider)
-    initial_similarity = best.similarity
+    """Rerun a failed case for evidence without hiding its initial failure."""
+    primary = evaluator(case, root, provider)
+    initial_similarity = primary.similarity
+    best_retry = None
     attempts = 1
-    while best.status == "FAIL" and attempts <= max(0, retries):
+    while primary.status == "FAIL" and attempts <= max(0, retries):
         candidate = evaluator(case, root, provider)
         attempts += 1
-        if candidate.similarity > best.similarity:
-            best = candidate
-    best.attempts = attempts
-    best.initial_similarity = initial_similarity
-    best.retry_improvement = round(best.similarity - initial_similarity, 2)
-    return best
+        if best_retry is None or candidate.similarity > best_retry.similarity:
+            best_retry = candidate
+    primary.attempts = attempts
+    primary.initial_similarity = initial_similarity
+    if best_retry is not None:
+        primary.best_retry_similarity = best_retry.similarity
+        primary.best_retry_status = best_retry.status
+        primary.retry_improvement = round(best_retry.similarity - initial_similarity, 2)
+        if best_retry.status != primary.status:
+            primary.quality_flags.append("UNSTABLE_RESULT")
+    return primary
 
 
 def render_markdown(results: list[EvaluationResult], missing: list[str],
@@ -384,12 +404,14 @@ def render_markdown(results: list[EvaluationResult], missing: list[str],
                 before = float(baseline[item.case_id]["similarity"])
                 lines.append(f"- {item.case_id}: {before:.1f}% -> {item.similarity:.1f}% "
                              f"({delta:+.1f} points)")
-    lines += ["", "| Test | Language | Source | Similarity | WER | Attempts | Retry Δ | Inference | RTF | Status |",
-              "|---|---|---|---:|---:|---:|---:|---:|---:|---|"]
+    lines += ["", "| Test | Language | Source | Similarity | WER | Attempts | Best retry | Retry Δ | Flags | Inference | RTF | Status |",
+              "|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|---|"]
     for item in results:
         lines.append(f"| {item.audio} | {item.language} | {item.audio_source.title()} | "
                      f"{item.similarity:.1f}% | "
-                     f"{item.wer:.3f} | {item.attempts} | {item.retry_improvement:+.1f} | "
+                     f"{item.wer:.3f} | {item.attempts} | "
+                     f"{item.best_retry_similarity if item.best_retry_similarity is not None else '-'} | "
+                     f"{item.retry_improvement:+.1f} | {', '.join(item.quality_flags) or '-'} | "
                      f"{item.inference_seconds:.2f}s | "
                      f"{item.real_time_factor:.2f} | {item.status} |")
     for item in results:
