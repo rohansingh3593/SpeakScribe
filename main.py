@@ -145,12 +145,16 @@ class MainWindow(QWidget):
         self.performance.setCurrentText("Balanced")
         self.script = QComboBox()
         self.script.addItems(["Original", "Latin", "Devanagari"])
+        self.language_mode = QComboBox()
+        self.language_mode.addItems(["Hindi / Hinglish", "Auto", "English"])
         self.translation_toggle = QCheckBox("Translation")
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Performance"))
         controls.addWidget(self.performance)
         controls.addWidget(QLabel("Script"))
         controls.addWidget(self.script)
+        controls.addWidget(QLabel("Recognition"))
+        controls.addWidget(self.language_mode)
         controls.addWidget(self.translation_toggle)
 
         self.start_button = QPushButton("Start Listening")
@@ -190,8 +194,12 @@ class MainWindow(QWidget):
 
     def start_listening(self) -> None:
         mode = PerformanceMode(self.performance.currentText().lower())
+        recognition_modes = {
+            "Hindi / Hinglish": "hi", "Auto": "auto", "English": "en",
+        }
         config = AppConfig(performance_mode=mode,
                            script_mode=self.script.currentText().lower(),
+                           language_mode=recognition_modes[self.language_mode.currentText()],
                            translation_enabled=self.translation_toggle.isChecked())
         self.performance_label.setText(f"Performance: {self.performance.currentText()}")
         self.status.setText("Starting…")
@@ -199,6 +207,7 @@ class MainWindow(QWidget):
         self.stop_button.setEnabled(True)
         self.performance.setEnabled(False)
         self.script.setEnabled(False)
+        self.language_mode.setEnabled(False)
         self.translation_toggle.setEnabled(False)
         self.translation.setVisible(config.translation_enabled)
         self.controller.start(config)
@@ -211,6 +220,7 @@ class MainWindow(QWidget):
         self.stop_button.setEnabled(False)
         self.performance.setEnabled(True)
         self.script.setEnabled(True)
+        self.language_mode.setEnabled(True)
         self.translation_toggle.setEnabled(True)
 
     def add_final(self, text: str) -> None:

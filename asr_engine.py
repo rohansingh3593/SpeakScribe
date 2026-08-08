@@ -13,6 +13,12 @@ from config import AppConfig
 from logger import log_print
 from text_processing import apply_script_mode, clean_text, detect_language
 
+KNOWN_SHORT_HALLUCINATIONS = {
+    "thank you", "thank you.", "thanks", "thanks.", "thanks for watching",
+    "thanks for watching.", "see you in the next video.",
+    "thanks for watching, see you in the next video.",
+}
+
 
 class WhisperEngine:
     def __init__(self, config: AppConfig):
@@ -84,6 +90,10 @@ class WhisperEngine:
         if not accepted:
             log_print(f"[ASR] no usable segments returned (segments={segment_count})")
         text = clean_text(" ".join(accepted), final=job.final)
+        if (len(job.audio) / self.config.sample_rate < 2.0 and
+                text.casefold() in KNOWN_SHORT_HALLUCINATIONS):
+            log_print(f"[ASR] rejected known short-audio hallucination: {text!r}")
+            text = ""
         text = apply_script_mode(text, self.config.script_mode, self.config.vocabulary)
         mode = detect_language(text, getattr(info, "language", None))
         return text, mode

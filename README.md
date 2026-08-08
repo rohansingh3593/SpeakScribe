@@ -473,7 +473,7 @@ Likewise, `indic-transliteration` is loaded only when Latin or Devanagari script
 conversion is selected. Language detection, cleanup, and the default `Original`
 script mode do not require the optional transliteration package during import.
 
-For quiet laptop microphone input, the default RMS speech threshold is `0.0025`.
+For quiet laptop microphone input, the default RMS speech threshold is `0.003`.
 Accepted speech is DC-centered and receives capped gain before Whisper inference;
 silence still remains excluded by the RMS detector. Detection logs include the
 measured RMS value so the thresholds can be tuned for a particular microphone.
@@ -483,15 +483,20 @@ same model instance is reused across Start/Stop cycles. Live partials run every
 `0.5` seconds with greedy decoding; the selected Fast/Balanced/Accurate profile is
 applied to final correction so partial speed does not sacrifice final accuracy.
 
-The default multilingual model is `tiny`, which is substantially more responsive
-than `small` on CPU-only machines. Only one pending ASR job is retained, finals
+The default multilingual model is `base`, which provides materially better Hindi
+accuracy while remaining usable on CPU. Only one pending ASR job is retained, finals
 replace obsolete queued partials, and confidence-filter rejections are logged with
 their no-speech and log-probability values instead of silently producing a blank UI.
 
 The same confidence thresholds are passed into Faster-Whisper itself (not merely
 applied after decoding), preventing its stricter defaults from silently removing
-all segments. Short pauses are bridged for 1.1 seconds, and contextual prompting is
+all segments. Short pauses are bridged for 1.5 seconds, and contextual prompting is
 reserved for finals to avoid prompt-seeded URL/repetition hallucinations in partials.
+
+Recognition defaults to **Hindi / Hinglish**, passing Whisper the stable `hi`
+language hint that short Hindi clips cannot reliably auto-detect while still
+preserving embedded English technical words. The GUI also provides Auto and English
+modes. Common short-audio Whisper outro hallucinations are rejected conservatively.
 
 ---
 

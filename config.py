@@ -41,10 +41,10 @@ class AppConfig:
     # Laptop microphone levels are commonly well below 0.01 after SoundCard's
     # float conversion. These remain above a typical quiet-room noise floor but
     # do not discard softer Hindi phonemes before Whisper sees them.
-    speech_threshold: float = 0.0025
+    speech_threshold: float = 0.003
     silence_threshold: float = 0.0008
-    silence_duration: float = 1.10
-    min_speech_duration: float = 0.50
+    silence_duration: float = 1.50
+    min_speech_duration: float = 0.80
     pre_speech_duration: float = 0.20
     partial_interval: float = 0.50
     min_partial_duration: float = 1.20
@@ -54,7 +54,7 @@ class AppConfig:
     max_audio_queue: int = 100
     max_asr_queue: int = 1
     context_sentences: int = 2
-    model_size: str = "tiny"
+    model_size: str = "base"
     device: str = "auto"
     compute_type: str = "auto"
     performance_mode: PerformanceMode = PerformanceMode.BALANCED
@@ -62,7 +62,9 @@ class AppConfig:
     no_speech_threshold: float = 0.85
     min_avg_logprob: float = -2.0
     script_mode: str = "original"
-    language_mode: str = "auto"
+    # Short Hindi/Hinglish chunks are frequently misdetected as English. Hindi
+    # decoding still preserves embedded English technical terms.
+    language_mode: str = "hi"
     translation_enabled: bool = False
     translation_model: str = "Helsinki-NLP/opus-mt-hi-en"
     vocabulary: tuple[str, ...] = field(default_factory=lambda: DEFAULT_VOCABULARY)
