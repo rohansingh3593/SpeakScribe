@@ -1,4 +1,8 @@
-from text_processing import clean_text, detect_language, remove_history_overlap
+import sys
+
+from text_processing import (
+    apply_script_mode, clean_text, detect_language, remove_history_overlap,
+)
 
 
 def test_hinglish_detection():
@@ -21,3 +25,9 @@ def test_conservative_cleanup():
 def test_history_overlap():
     assert remove_history_overlap("I updated SQLAlchemy", "SQLAlchemy and FastAPI") == "and FastAPI"
 
+
+def test_original_script_mode_does_not_load_optional_transliteration():
+    assert apply_script_mode("मुझे FastAPI चाहिए", "original", ("FastAPI",)) == (
+        "मुझे FastAPI चाहिए"
+    )
+    assert "indic_transliteration" not in sys.modules

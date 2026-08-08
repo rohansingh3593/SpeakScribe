@@ -469,6 +469,10 @@ such as `EnergySpeechDetector` can therefore be imported and tested without an
 installed or initialized platform audio backend. Running the application still
 requires all packages from `requirements.txt`.
 
+Likewise, `indic-transliteration` is loaded only when Latin or Devanagari script
+conversion is selected. Language detection, cleanup, and the default `Original`
+script mode do not require the optional transliteration package during import.
+
 ---
 
 # 🚀 Running the Application

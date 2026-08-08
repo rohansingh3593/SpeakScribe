@@ -1,9 +1,7 @@
 """Conservative language, cleanup, and optional script processing."""
 
+from importlib import import_module
 import re
-
-from indic_transliteration import sanscript
-from indic_transliteration.sanscript import transliterate
 
 TECHNICAL_CANONICAL = {
     "sql alchemy": "SQLAlchemy", "sqlalchemy": "SQLAlchemy", "fast api": "FastAPI",
@@ -60,6 +58,13 @@ def remove_history_overlap(history: str, text: str, limit: int = 12) -> str:
 def apply_script_mode(text: str, mode: str, technical_terms: tuple[str, ...]) -> str:
     if mode == "original":
         return text
+    if mode not in {"latin", "devanagari"}:
+        raise ValueError(f"Unsupported script mode: {mode}")
+
+    # Transliteration is optional and is not part of language detection or text
+    # cleanup. Load it only for an explicitly selected conversion mode so those
+    # lightweight operations remain available without the optional package.
+    sanscript = import_module("indic_transliteration.sanscript")
     protected: dict[str, str] = {}
     for index, term in enumerate(sorted(technical_terms, key=len, reverse=True)):
         token = f"ZZPROTECTED{index}ZZ"
@@ -68,11 +73,10 @@ def apply_script_mode(text: str, mode: str, technical_terms: tuple[str, ...]) ->
             protected[token] = term
             text = updated
     if mode == "latin":
-        text = transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS)
-    elif mode == "devanagari":
+        text = sanscript.transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS)
+    else:
         # ITRANS is intentionally applied only on explicit user request.
-        text = transliterate(text, sanscript.ITRANS, sanscript.DEVANAGARI)
+        text = sanscript.transliterate(text, sanscript.ITRANS, sanscript.DEVANAGARI)
     for token, term in protected.items():
         text = text.replace(token, term)
     return text
-
