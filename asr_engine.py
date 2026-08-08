@@ -3,14 +3,18 @@
 from collections import deque
 from queue import Empty, Queue
 from threading import Event, Lock
+from pathlib import Path
 import time
+import wave
+
+import numpy as np
 
 from faster_whisper import WhisperModel
 from psutil import Process
 
-from audio_pipeline import ASRJob, prepare_audio_for_asr
+from audio_pipeline import ASRJob, audio_statistics, prepare_audio_for_asr
 from config import AppConfig
-from logger import log_print
+from logger import log_exception, log_print
 from text_processing import (
     apply_script_mode, clean_text, detect_language, is_low_quality_text,
 )
@@ -20,6 +24,16 @@ KNOWN_SHORT_HALLUCINATIONS = {
     "thanks for watching.", "see you in the next video.",
     "thanks for watching, see you in the next video.",
 }
+
+
+def _write_debug_wav(path: Path, audio: np.ndarray, sample_rate: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pcm = (np.clip(audio, -1.0, 1.0) * 32767).astype("<i2")
+    with wave.open(str(path), "wb") as stream:
+        stream.setnchannels(1)
+        stream.setsampwidth(2)
+        stream.setframerate(sample_rate)
+        stream.writeframes(pcm.tobytes())
 
 
 class WhisperEngine:
@@ -65,8 +79,30 @@ class WhisperEngine:
         # vocabulary and recent context for correction.
         prompt = final_prompt if job.final else None
         language = None if self.config.language_mode == "auto" else self.config.language_mode
+        prepared = prepare_audio_for_asr(job.audio)
+        raw_stats = audio_statistics(job.audio)
+        prepared_stats = audio_statistics(prepared)
+        log_print(
+            "[ASR-INPUT] "
+            f"utterance={job.utterance_id} final={job.final} "
+            f"duration={len(job.audio) / self.config.sample_rate:.2f}s "
+            f"raw_rms={raw_stats['rms']:.6f} raw_peak={raw_stats['peak']:.6f} "
+            f"raw_mean={raw_stats['mean']:.6f} zeros={raw_stats['zero_ratio']:.3f} "
+            f"prepared_rms={prepared_stats['rms']:.6f} "
+            f"prepared_peak={prepared_stats['peak']:.6f} finite={prepared_stats['finite']} "
+            f"language={language or 'auto'} script={self.config.script_mode} "
+            f"beam={beam_size} prompt={'yes' if prompt else 'no'}"
+        )
+        if self.config.debug_audio_enabled and job.final:
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            directory = Path(self.config.debug_audio_directory)
+            raw_path = directory / f"{stamp}-u{job.utterance_id}-raw.wav"
+            prepared_path = directory / f"{stamp}-u{job.utterance_id}-prepared.wav"
+            _write_debug_wav(raw_path, job.audio, self.config.sample_rate)
+            _write_debug_wav(prepared_path, prepared, self.config.sample_rate)
+            log_print(f"[ASR-INPUT] saved debug audio: {raw_path}, {prepared_path}")
         segments, info = self.model.transcribe(
-            prepare_audio_for_asr(job.audio), language=language, task="transcribe",
+            prepared, language=language, task="transcribe",
             beam_size=beam_size,
             best_of=best_of, temperature=profile.temperature,
             initial_prompt=prompt, condition_on_previous_text=False,
@@ -79,6 +115,14 @@ class WhisperEngine:
         segment_count = 0
         for segment in segments:
             segment_count += 1
+            log_print(
+                "[ASR-SEGMENT] "
+                f"start={segment.start:.2f} end={segment.end:.2f} "
+                f"no_speech={segment.no_speech_prob:.3f} "
+                f"avg_logprob={segment.avg_logprob:.3f} "
+                f"compression={segment.compression_ratio:.3f} "
+                f"raw={segment.text!r}"
+            )
             if (segment.no_speech_prob <= self.config.no_speech_threshold and
                     segment.avg_logprob >= self.config.min_avg_logprob):
                 accepted.append(segment.text)
@@ -92,6 +136,7 @@ class WhisperEngine:
         if not accepted:
             log_print(f"[ASR] no usable segments returned (segments={segment_count})")
         text = clean_text(" ".join(accepted), final=job.final)
+        log_print(f"[ASR-TEXT] accepted={len(accepted)}/{segment_count} cleaned={text!r}")
         if (len(job.audio) / self.config.sample_rate < 2.0 and
                 text.casefold() in KNOWN_SHORT_HALLUCINATIONS):
             log_print(f"[ASR] rejected known short-audio hallucination: {text!r}")
@@ -100,6 +145,9 @@ class WhisperEngine:
             log_print(f"[ASR] rejected corrupt/repetitive transcript: {text!r}")
             text = ""
         text = apply_script_mode(text, self.config.script_mode, self.config.vocabulary)
+        language_probability = float(getattr(info, "language_probability", 0.0) or 0.0)
+        log_print(f"[ASR-TEXT] post_script={text!r} detected={getattr(info, 'language', None)!r} "
+                  f"probability={language_probability:.3f}")
         mode = detect_language(text, getattr(info, "language", None))
         return text, mode
 
@@ -172,5 +220,5 @@ class ASRWorker:
                     self.signals.partial_text.emit(text)
                     log_print(f"Partial result: {text}")
         except Exception as exc:
-            log_print(f"ASR worker error: {exc}")
+            log_exception("ASR-WORKER", exc)
             self.signals.error.emit(str(exc))

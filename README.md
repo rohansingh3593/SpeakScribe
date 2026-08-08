@@ -529,6 +529,38 @@ warning, and less than 60% fails. Missing WAV files are reported explicitly and 
 the command exit with status 2; no synthetic transcript is presented as a real ASR
 result.
 
+## Root-cause diagnostics
+
+The runtime log now records one-second `[AUDIO]` capture statistics, `[VAD]`
+threshold decisions, queue submissions/evictions, `[ASR-INPUT]` levels before and
+after preprocessing, every raw Whisper segment and confidence value, each cleanup
+stage, and `[GUI]` signal delivery. This identifies whether blank output originates
+in microphone capture, speech detection, queueing, Whisper, filtering, script
+conversion, or Qt delivery.
+
+For a reproducible audio-level diagnosis, start the application with debug WAV
+capture enabled:
+
+```powershell
+$env:SPEAKSCRIBE_DEBUG_AUDIO="1"
+python main.py
+```
+
+Every finalized utterance then writes both raw and prepared 16 kHz WAV files under
+`debug_audio/`. Speak one sentence, stop listening, and compare those two files. Do
+not share them publicly if they contain private speech. Debug WAV capture is disabled
+by default, and runtime logs contain measurements/transcripts but never audio samples.
+
+Interpret the diagnostic prefixes in order:
+
+1. `[AUDIO] asr_rms` near zero or a high `zeros` ratio indicates capture/device data.
+2. `[VAD] rms_max` below `start_threshold` explains why no utterance opens.
+3. Missing `[QUEUE]` lines after `speaking=True` identifies segmentation timing.
+4. `[ASR-INPUT]` compares raw and gain-conditioned audio reaching Whisper.
+5. `[ASR-SEGMENT]` shows the model's unmodified text and confidence values.
+6. `[ASR-TEXT]` shows whether confidence, corruption, or script processing emptied it.
+7. A nonempty `[ASR-TEXT] post_script` without `[GUI]` identifies Qt delivery.
+
 ---
 
 # 🚀 Running the Application

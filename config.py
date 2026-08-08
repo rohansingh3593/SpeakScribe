@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
+import os
 
 
 class PerformanceMode(str, Enum):
@@ -72,6 +73,9 @@ class AppConfig:
     language_mode: str = "hi"
     translation_enabled: bool = False
     translation_model: str = "Helsinki-NLP/opus-mt-hi-en"
+    debug_log_interval: float = 1.0
+    debug_audio_enabled: bool = os.getenv("SPEAKSCRIBE_DEBUG_AUDIO", "0") == "1"
+    debug_audio_directory: str = "debug_audio"
     vocabulary: tuple[str, ...] = field(default_factory=lambda: DEFAULT_VOCABULARY)
 
     @property

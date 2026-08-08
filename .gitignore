@@ -5,4 +5,5 @@ speakscribe.log
 evaluation/report.md
 evaluation/report.json
 test_audio/*.wav
+debug_audio/
 .venv/

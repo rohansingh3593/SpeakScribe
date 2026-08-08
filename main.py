@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 from asr_engine import ASRWorker, WhisperModelProvider
 from audio_pipeline import AudioCaptureWorker, SpeechBufferWorker
 from config import AppConfig, PerformanceMode
-from logger import get_output_path, log_print
+from logger import get_output_path, log_exception, log_print
 from translation import TranslationWorker
 
 
@@ -52,7 +52,7 @@ class SpeechController:
                 self.model_provider.get(AppConfig())
                 self.signals.status_changed.emit("Ready")
             except Exception as exc:
-                log_print(f"Model preload error: {exc}")
+                log_exception("MODEL-PRELOAD", exc)
                 self.signals.error.emit(str(exc))
 
         self.preload_thread = Thread(target=load, name="whisper-preload", daemon=True)
@@ -84,7 +84,16 @@ class SpeechController:
                                        daemon=True))
         for thread in self.threads:
             thread.start()
-        log_print(f"Listening started; log={get_output_path()}")
+        log_print(
+            f"Listening started; log={get_output_path()} threads="
+            f"{[thread.name for thread in self.threads]} "
+            f"capture_rate={config.capture_sample_rate} asr_rate={config.sample_rate} "
+            f"frame_ms={config.frame_ms} speech_threshold={config.speech_threshold} "
+            f"silence_threshold={config.silence_threshold} "
+            f"language={config.language_mode} script={config.script_mode} "
+            f"model={config.model_size} mode={config.performance_mode.value} "
+            f"debug_audio={config.debug_audio_enabled}"
+        )
 
     def translate(self, text: str) -> None:
         if self.translation_queue is None:
@@ -184,7 +193,7 @@ class MainWindow(QWidget):
         layout.addLayout(buttons)
 
     def _connect_signals(self) -> None:
-        self.signals.partial_text.connect(self.live.setPlainText)
+        self.signals.partial_text.connect(self.show_partial)
         self.signals.final_text.connect(self.add_final)
         self.signals.language_changed.connect(
             lambda value: self.language.setText(f"Language: {value}"))
@@ -224,10 +233,15 @@ class MainWindow(QWidget):
         self.translation_toggle.setEnabled(True)
 
     def add_final(self, text: str) -> None:
+        log_print(f"[GUI] final signal received chars={len(text)} text={text!r}")
         self.final_history.append(text)
         self.transcription.setPlainText("\n".join(self.final_history))
         self.live.clear()
         self.controller.translate(text)  # display has already happened
+
+    def show_partial(self, text: str) -> None:
+        log_print(f"[GUI] partial signal received chars={len(text)} text={text!r}")
+        self.live.setPlainText(text)
 
     def show_translation(self, text: str) -> None:
         self.translation.setPlainText(f"Translation: {text}")
