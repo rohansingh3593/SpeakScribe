@@ -7,4 +7,4 @@ indic-transliteration>=2.3
 transformers>=4.38
 torch>=2.1
 sentencepiece>=0.1.99
-
+edge-tts>=6.1.12

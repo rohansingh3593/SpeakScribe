@@ -62,6 +62,10 @@ On Windows, inspect available voices with `python tests/generate_test_audio.py
 --list-voices`. If `hi-IN` is absent, install **Hindi → Language options → Speech**
 from Windows Settings, or run the elevated PowerShell command printed by the generator.
 Latin-only Hinglish can fall back to an installed English voice; Devanagari never does.
+When an appropriate SAPI voice is missing, the generator automatically tries the
+`edge-tts` Microsoft neural Hindi/Indian-English fallback. Install updated dependencies
+with `python -m pip install -r requirements.txt`; the neural fallback needs internet
+access only while creating missing WAV files.
 
 Remove only synthetic/generated test audio (human recordings are preserved):
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import asyncio
+import importlib.util
 import json
 import math
 from pathlib import Path
@@ -130,6 +132,57 @@ def list_windows_voices() -> str:
     return completed.stdout.strip()
 
 
+def _run_edge_tts(text: str, language: str, output: Path,
+                  rate: int, variation: int) -> str:
+    """Use Microsoft neural TTS when Windows has no installed Hindi SAPI voice."""
+    if (importlib.util.find_spec("edge_tts") is None or
+            importlib.util.find_spec("faster_whisper") is None):
+        raise RuntimeError(
+            "The online Hindi TTS fallback is unavailable. Run: "
+            "python -m pip install edge-tts faster-whisper"
+        )
+    import edge_tts
+    from faster_whisper.audio import decode_audio
+
+    has_devanagari = any(ord(character) in DEVANAGARI_PATTERN for character in text)
+    if language == "Hindi" or has_devanagari:
+        voices = ("hi-IN-SwaraNeural", "hi-IN-MadhurNeural")
+    else:
+        voices = ("en-IN-NeerjaNeural", "en-IN-PrabhatNeural")
+    voice = voices[variation % len(voices)]
+    media_path = output.with_suffix(".edge.mp3")
+
+    async def synthesize() -> None:
+        communication = edge_tts.Communicate(
+            text, voice, rate=f"{rate * 6:+d}%",
+        )
+        await communication.save(str(media_path))
+
+    try:
+        asyncio.run(synthesize())
+        audio = decode_audio(str(media_path), sampling_rate=16_000)
+        _write_wav(output, audio)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Microsoft neural TTS failed for {voice}: {exc}. "
+            "This fallback requires internet access."
+        ) from exc
+    finally:
+        media_path.unlink(missing_ok=True)
+    return f"edge-tts:{voice}"
+
+
+def _run_windows_tts(text: str, language: str, output: Path,
+                     rate: int, variation: int) -> str:
+    try:
+        return _run_windows_sapi(text, language, output, rate, variation)
+    except RuntimeError as sapi_error:
+        try:
+            return _run_edge_tts(text, language, output, rate, variation)
+        except RuntimeError as edge_error:
+            raise RuntimeError(f"{sapi_error} Fallback error: {edge_error}") from edge_error
+
+
 def _run_espeak(text: str, language: str, output: Path, rate: int,
                 variation: int) -> str:
     executable = shutil.which("espeak-ng") or shutil.which("espeak")
@@ -166,7 +219,7 @@ def synthesize_clean(text: str, language: str, output: Path,
     rate = _rate_for(profile)
     system = platform.system()
     if system == "Windows":
-        return _run_windows_sapi(text, language, output, rate, variation)
+        return _run_windows_tts(text, language, output, rate, variation)
     if system == "Darwin":
         return _run_macos_say(text, language, output, rate, variation)
     return _run_espeak(text, language, output, rate, variation)

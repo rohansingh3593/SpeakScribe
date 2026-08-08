@@ -115,3 +115,33 @@ def test_remove_all_audio_requires_explicit_include_human(monkeypatch, tmp_path)
 
     assert result["removed"] == 1
     assert not audio.exists()
+
+
+def test_windows_tts_uses_neural_fallback_when_sapi_voice_is_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        audio_generation, "_run_windows_sapi",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("missing hi-IN")),
+    )
+    monkeypatch.setattr(audio_generation, "_run_edge_tts", lambda *_args: "edge-tts:hi-IN")
+
+    voice = audio_generation._run_windows_tts(
+        "आज काम पूरा करना है", "Hindi", tmp_path / "hindi.wav", 0, 0,
+    )
+
+    assert voice == "edge-tts:hi-IN"
+
+
+def test_windows_tts_reports_both_backend_failures(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        audio_generation, "_run_windows_sapi",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("missing SAPI voice")),
+    )
+    monkeypatch.setattr(
+        audio_generation, "_run_edge_tts",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("network unavailable")),
+    )
+
+    with pytest.raises(RuntimeError, match="missing SAPI voice.*network unavailable"):
+        audio_generation._run_windows_tts(
+            "आज काम पूरा करना है", "Hindi", tmp_path / "hindi.wav", 0, 0,
+        )
