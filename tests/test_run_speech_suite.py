@@ -1,6 +1,20 @@
 from types import SimpleNamespace
+import subprocess
+import sys
 
 from tests import run_speech_suite
+
+
+def test_script_help_works_without_pythonpath_configuration():
+    completed = subprocess.run(
+        [sys.executable, "tests/run_speech_suite.py", "--help"],
+        cwd=run_speech_suite.ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0
+    assert "--cleanup-after" in completed.stdout
 
 
 def test_cleanup_generated_runs_after_success(monkeypatch):

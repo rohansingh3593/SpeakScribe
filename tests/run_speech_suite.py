@@ -7,6 +7,10 @@ import subprocess
 import sys
 import time
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from evaluation_runner import format_duration
 
 
@@ -22,7 +26,7 @@ def parse_args(argv=None):
 
 def main(argv=None) -> int:
     args = parse_args(argv)
-    root = Path(__file__).resolve().parents[1]
+    root = ROOT
     started_at = datetime.now().astimezone()
     started = time.perf_counter()
     exit_code = 0
