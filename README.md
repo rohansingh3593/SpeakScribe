@@ -535,7 +535,8 @@ per scenario. Recordings belong in the tracked `tests/speech_cases/01_normal` th
 `30_combined` folders. `python evaluation_runner.py` now defaults to this suite and
 generates Markdown, JSON, and CSV reports under `tests/results/`, including scenario,
 language, difficulty, technical-term, number, latency, partial-update, top-error, and
-root-cause analyses. See `tests/README.md` for the opt-in production pytest command.
+root-cause analyses. The 120 production pytest cases are mandatory and never skipped;
+see `tests/README.md` for the command and recording requirements.
 
 ## Root-cause diagnostics
 

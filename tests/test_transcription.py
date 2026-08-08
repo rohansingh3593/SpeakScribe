@@ -1,7 +1,6 @@
-"""Opt-in, 120-case production ASR regression suite."""
+"""Mandatory 120-case production ASR regression suite."""
 
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -13,41 +12,29 @@ ROOT = Path(__file__).resolve().parents[1]
 CASES = json.loads(
     (ROOT / "tests/expected/transcripts.json").read_text(encoding="utf-8")
 )["cases"]
-RUN_AUDIO_TESTS = os.getenv("SPEAKSCRIBE_RUN_AUDIO_TESTS") == "1"
-PARAMETERS = CASES if RUN_AUDIO_TESTS else [None]
-PARAMETER_IDS = ([case["id"] for case in CASES]
-                 if RUN_AUDIO_TESTS else ["audio-suite-disabled"])
+_MODEL_PROVIDER = None
 
 
-@pytest.fixture(scope="session")
 def model_provider():
-    if not RUN_AUDIO_TESTS:
-        pytest.skip(
-            "120-case ASR suite disabled; set SPEAKSCRIBE_RUN_AUDIO_TESTS=1 "
-            "after installing all target WAV recordings"
-        )
-    missing = [case["audio"] for case in CASES if not (ROOT / case["audio"]).is_file()]
-    if missing:
-        pytest.fail(
-            f"Prerecorded corpus incomplete: {len(missing)}/120 WAV files missing; "
-            f"first missing file: {missing[0]}",
-            pytrace=False,
-        )
+    """Load one model only after the current case's recording is verified."""
+    global _MODEL_PROVIDER
+    if _MODEL_PROVIDER is not None:
+        return _MODEL_PROVIDER
     from asr_engine import WhisperModelProvider
-    return WhisperModelProvider()
+    _MODEL_PROVIDER = WhisperModelProvider()
+    return _MODEL_PROVIDER
 
 
-@pytest.mark.parametrize("case", PARAMETERS, ids=PARAMETER_IDS)
-def test_prerecorded_transcription(case, model_provider):
-    if case is None:
-        pytest.skip(
-            "120-case ASR suite disabled; set SPEAKSCRIBE_RUN_AUDIO_TESTS=1 "
-            "after installing all target WAV recordings"
-        )
+@pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
+def test_prerecorded_transcription(case):
     audio = ROOT / case["audio"]
     if not audio.is_file():
-        pytest.fail(f"Required target recording is missing: {audio}")
-    result = evaluate_case(case, ROOT, model_provider)
+        pytest.fail(
+            f"Required target recording is missing: {audio}. "
+            "All 120 WAV files are mandatory; missing cases are failures, never skips.",
+            pytrace=False,
+        )
+    result = evaluate_case(case, ROOT, model_provider())
     assert result.status != "FAIL", (
         f"{result.case_id}: {result.similarity}% WER={result.wer}; "
         f"root_cause={result.root_cause}; expected={result.expected!r}; "

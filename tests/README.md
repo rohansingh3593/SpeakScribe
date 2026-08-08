@@ -22,16 +22,16 @@ Run all available production recordings and generate Markdown, JSON, and CSV rep
 python evaluation_runner.py
 ```
 
-Run the 120 parametrized pytest regressions once every WAV is present:
+Run the 120 mandatory parametrized pytest regressions:
 
 ```powershell
-$env:SPEAKSCRIBE_RUN_AUDIO_TESTS="1"
 python -m pytest tests/test_transcription.py
 ```
 
-Without that environment variable, pytest reports one suite-level skip instead of
-120 misleading per-case skips. With opt-in enabled, any missing WAV is a test failure,
-not a skip, so an incomplete corpus cannot look like a successful regression run.
+There is no opt-in flag and no skip path. Pytest always collects all 120 cases. Every
+missing WAV fails its corresponding case before Faster-Whisper is imported, so the
+report shows exactly which recordings are absent and an incomplete corpus can never
+look like a successful regression run.
 
 Exit code 2 from the report runner means recordings are missing. That is an incomplete
 dataset, not a successful recognition run. Real accuracy, latency, and fix/retest
