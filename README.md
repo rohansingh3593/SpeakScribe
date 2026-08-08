@@ -464,6 +464,11 @@ Windows `pytest.exe`, IDE test runners, and wrappers that override pytest's
 configuration. This keeps top-level application modules such as `audio_pipeline`
 and `text_processing` importable with both `pytest` and `python -m pytest`.
 
+`soundcard` is loaded only when microphone capture starts. Pure NumPy components
+such as `EnergySpeechDetector` can therefore be imported and tested without an
+installed or initialized platform audio backend. Running the application still
+requires all packages from `requirements.txt`.
+
 ---
 
 # 🚀 Running the Application

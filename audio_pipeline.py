@@ -2,14 +2,13 @@
 
 from collections import deque
 from dataclasses import dataclass
+from importlib import import_module
 from queue import Empty, Full, Queue
 from threading import Event
 import time
 import warnings
 
 import numpy as np
-import soundcard as sc
-from soundcard.mediafoundation import SoundcardRuntimeWarning
 
 from config import AppConfig
 from logger import log_print
@@ -51,12 +50,20 @@ class AudioCaptureWorker:
 
     def run(self) -> None:
         try:
+            # SoundCard is a capture-only dependency. Importing it here keeps the
+            # NumPy speech detector and buffer classes usable by tests, tooling,
+            # and offline processing without initializing a platform audio
+            # backend during module collection.
+            sc = import_module("soundcard")
+            mediafoundation = import_module("soundcard.mediafoundation")
+            soundcard_warning = getattr(
+                mediafoundation, "SoundcardRuntimeWarning", RuntimeWarning)
             microphone = sc.default_microphone()
             if microphone is None:
                 raise RuntimeError("No default microphone is available")
             log_print(f"Audio device: {microphone.name}")
             with warnings.catch_warnings():
-                warnings.filterwarnings("once", category=SoundcardRuntimeWarning)
+                warnings.filterwarnings("once", category=soundcard_warning)
                 with microphone.recorder(samplerate=self.config.sample_rate,
                                          channels=self.config.channels) as recorder:
                     while not self.stop_event.is_set():
