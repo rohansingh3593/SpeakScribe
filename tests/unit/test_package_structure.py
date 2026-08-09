@@ -35,3 +35,16 @@ def test_evaluation_fixture_paths_remain_repository_relative():
     root = Path(__file__).resolve().parents[2]
     assert MANIFEST_PATH == root / "tests/expected/transcripts.json"
     assert GENERATED_MANIFEST == root / "tests/generated_audio_manifest.json"
+
+
+def test_recording_settings_strip_is_built_inside_the_compact_panel():
+    root = Path(__file__).resolve().parents[2]
+    source = (root / "app/main.py").read_text(encoding="utf-8")
+    recording_bar = source.split("def _build_recording_bar", 1)[1].split(
+        "def _select_language", 1)[0]
+    assert "outer_layout.addWidget(self.settings_bar)" in recording_bar
+    assert recording_bar.index("outer_layout.addWidget(self.settings_bar)") < (
+        recording_bar.index("top_row = QHBoxLayout()"))
+    for control in ("self.performance", "self.script", "self.language_mode",
+                    "self.capture_source", "self.translation_toggle"):
+        assert control in source

@@ -58,8 +58,9 @@ priority on CPU fallback.
 The recording UI uses a compact panel with an elapsed timer and paired recording/language
 buttons on the left, a selectable append-only transcript on the right, Copy and Clear
 actions, and a bottom **Move** handle. The language shortcuts map to English,
-Hindi/Hinglish, and automatic recognition while preserving the detailed configuration
-controls above the panel.
+Hindi/Hinglish, and automatic recognition. Performance, Script, Recognition, Capture,
+and Translation controls are integrated into a light settings strip at the top of the
+same recording panel instead of occupying a separate layout outside it.
 
 The application continuously listens to microphone input and converts speech into text with a focus on **low latency, transcription accuracy, and Hindi/English/Hinglish support**.
 

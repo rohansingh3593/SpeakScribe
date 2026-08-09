@@ -144,7 +144,7 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SpeakScribe")
-        self.resize(760, 600)
+        self.resize(1080, 540)
         self.signals = SpeechSignals()
         self.controller = SpeechController(self.signals)
         self.final_history: list[str] = []
@@ -169,23 +169,35 @@ class MainWindow(QWidget):
         self.performance = QComboBox()
         self.performance.addItems(["Fast", "Balanced", "Accurate"])
         self.performance.setCurrentText("Balanced")
+        self.performance.setMinimumWidth(115)
         self.script = QComboBox()
         self.script.addItems(["Original", "Latin", "Devanagari"])
+        self.script.setMinimumWidth(125)
         self.language_mode = QComboBox()
         self.language_mode.addItems(["Hindi / Hinglish", "Auto", "English"])
+        self.language_mode.setMinimumWidth(155)
         self.capture_source = QComboBox()
         self.capture_source.addItems(["System audio (legacy)", "Microphone"])
+        self.capture_source.setMinimumWidth(200)
         self.translation_toggle = QCheckBox("Translation")
-        controls = QHBoxLayout()
-        controls.addWidget(QLabel("Performance"))
-        controls.addWidget(self.performance)
-        controls.addWidget(QLabel("Script"))
-        controls.addWidget(self.script)
-        controls.addWidget(QLabel("Recognition"))
-        controls.addWidget(self.language_mode)
-        controls.addWidget(QLabel("Capture"))
-        controls.addWidget(self.capture_source)
+        self.settings_bar = QWidget()
+        self.settings_bar.setObjectName("recordSettingsBar")
+        self.settings_bar.setStyleSheet(
+            "#recordSettingsBar { background: #f6f6f6; border-radius: 6px; } "
+            "#recordSettingsBar QLabel, #recordSettingsBar QCheckBox { color: #111; } "
+            "#recordSettingsBar QComboBox { min-height: 26px; padding: 0 8px; }")
+        controls = QHBoxLayout(self.settings_bar)
+        controls.setContentsMargins(10, 5, 10, 5)
+        controls.setSpacing(8)
+        for label, control in (
+                ("Performance", self.performance),
+                ("Script", self.script),
+                ("Recognition", self.language_mode),
+                ("Capture", self.capture_source)):
+            controls.addWidget(QLabel(label))
+            controls.addWidget(control)
         controls.addWidget(self.translation_toggle)
+        controls.addStretch()
 
         self._build_recording_bar()
 
@@ -193,7 +205,6 @@ class MainWindow(QWidget):
         layout.addWidget(self.status)
         layout.addWidget(self.language)
         layout.addWidget(self.performance_label)
-        layout.addLayout(controls)
         layout.addWidget(self.record_output_container, alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.translation)
 
@@ -206,9 +217,9 @@ class MainWindow(QWidget):
 
         self.record_output_container = QWidget()
         self.record_output_container.setObjectName("recordOutputPanel")
-        self.record_output_container.setMinimumWidth(620)
-        self.record_output_container.setMaximumWidth(760)
-        self.record_output_container.setFixedHeight(300)
+        self.record_output_container.setMinimumWidth(900)
+        self.record_output_container.setMaximumWidth(1080)
+        self.record_output_container.setFixedHeight(340)
         self.record_output_container.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.record_output_container.setStyleSheet(
@@ -218,6 +229,7 @@ class MainWindow(QWidget):
         outer_layout = QVBoxLayout(self.record_output_container)
         outer_layout.setContentsMargins(10, 8, 10, 8)
         outer_layout.setSpacing(6)
+        outer_layout.addWidget(self.settings_bar)
         top_row = QHBoxLayout()
         top_row.setSpacing(12)
         button_layout = QVBoxLayout()
