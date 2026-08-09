@@ -105,44 +105,46 @@ class WhisperEngine:
             _write_debug_wav(raw_path, job.audio, self.config.sample_rate)
             _write_debug_wav(prepared_path, prepared, self.config.sample_rate)
             log_print(f"[ASR-INPUT] saved debug audio: {raw_path}, {prepared_path}")
-        segments, info = self.model.transcribe(
-            prepared, language=language, task="transcribe",
-            beam_size=beam_size,
-            best_of=best_of, temperature=profile.temperature,
-            initial_prompt=prompt, condition_on_previous_text=False,
-            vad_filter=self.config.vad_filter, word_timestamps=False,
-            no_speech_threshold=self.config.no_speech_threshold,
-            log_prob_threshold=self.config.min_avg_logprob,
-            compression_ratio_threshold=self.config.max_compression_ratio,
-        )
-        accepted = []
-        segment_count = 0
-        for segment in segments:
-            segment_count += 1
-            log_print(
-                "[ASR-SEGMENT] "
-                f"start={segment.start:.2f} end={segment.end:.2f} "
-                f"no_speech={segment.no_speech_prob:.3f} "
-                f"avg_logprob={segment.avg_logprob:.3f} "
-                f"compression={segment.compression_ratio:.3f} "
-                f"raw={segment.text!r}"
+        def decode(initial_prompt):
+            segments, decode_info = self.model.transcribe(
+                prepared, language=language, task="transcribe",
+                beam_size=beam_size, best_of=best_of,
+                temperature=profile.temperature, initial_prompt=initial_prompt,
+                condition_on_previous_text=False, vad_filter=self.config.vad_filter,
+                word_timestamps=False, no_speech_threshold=self.config.no_speech_threshold,
+                log_prob_threshold=self.config.min_avg_logprob,
+                compression_ratio_threshold=self.config.max_compression_ratio,
             )
-            if (segment.no_speech_prob <= self.config.no_speech_threshold and
-                    segment.avg_logprob >= self.config.min_avg_logprob and
-                    segment.compression_ratio <= self.config.max_compression_ratio):
-                accepted.append(segment.text)
-            else:
+            accepted = []
+            segment_count = 0
+            for segment in segments:
+                segment_count += 1
                 log_print(
-                    "[ASR] rejected segment "
-                    f"no_speech={segment.no_speech_prob:.2f} "
-                    f"avg_logprob={segment.avg_logprob:.2f} "
-                    f"compression={segment.compression_ratio:.2f} "
-                    f"text={segment.text.strip()!r}"
+                    "[ASR-SEGMENT] "
+                    f"start={segment.start:.2f} end={segment.end:.2f} "
+                    f"no_speech={segment.no_speech_prob:.3f} "
+                    f"avg_logprob={segment.avg_logprob:.3f} "
+                    f"compression={segment.compression_ratio:.3f} raw={segment.text!r}"
                 )
-        if not accepted:
-            log_print(f"[ASR] no usable segments returned (segments={segment_count})")
-        text = clean_text(" ".join(accepted), final=job.final)
-        log_print(f"[ASR-TEXT] accepted={len(accepted)}/{segment_count} cleaned={text!r}")
+                if (segment.no_speech_prob <= self.config.no_speech_threshold and
+                        segment.avg_logprob >= self.config.min_avg_logprob and
+                        segment.compression_ratio <= self.config.max_compression_ratio):
+                    accepted.append(segment.text)
+                else:
+                    log_print(
+                        "[ASR] rejected segment "
+                        f"no_speech={segment.no_speech_prob:.2f} "
+                        f"avg_logprob={segment.avg_logprob:.2f} "
+                        f"compression={segment.compression_ratio:.2f} "
+                        f"text={segment.text.strip()!r}"
+                    )
+            if not accepted:
+                log_print(f"[ASR] no usable segments returned (segments={segment_count})")
+            decoded = clean_text(" ".join(accepted), final=job.final)
+            log_print(f"[ASR-TEXT] accepted={len(accepted)}/{segment_count} cleaned={decoded!r}")
+            return decoded, decode_info
+
+        text, info = decode(prompt)
         if (len(job.audio) / self.config.sample_rate < 2.0 and
                 text.casefold() in KNOWN_SHORT_HALLUCINATIONS):
             log_print(f"[ASR] rejected known short-audio hallucination: {text!r}")
@@ -150,6 +152,16 @@ class WhisperEngine:
         if is_low_quality_text(text):
             log_print(f"[ASR] rejected corrupt/repetitive transcript: {text!r}")
             text = ""
+        if not text and prompt:
+            log_print("[ASR] prompted final was unusable; retrying without prompt")
+            text, info = decode(None)
+            if (len(job.audio) / self.config.sample_rate < 2.0 and
+                    text.casefold() in KNOWN_SHORT_HALLUCINATIONS):
+                log_print(f"[ASR] rejected known fallback hallucination: {text!r}")
+                text = ""
+            if is_low_quality_text(text):
+                log_print(f"[ASR] rejected corrupt/repetitive fallback: {text!r}")
+                text = ""
         text = apply_script_mode(text, self.config.script_mode, self.config.vocabulary)
         language_probability = float(getattr(info, "language_probability", 0.0) or 0.0)
         log_print(f"[ASR-TEXT] post_script={text!r} detected={getattr(info, 'language', None)!r} "

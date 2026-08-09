@@ -184,6 +184,9 @@ def _diagnosis(result: EvaluationResult) -> str:
 
 def _root_cause(case: dict, result: EvaluationResult) -> tuple[str, str]:
     features = set(case.get("features", []))
+    if "NO_TRANSCRIPTION" in result.quality_flags:
+        return ("No transcription",
+                "Inspect rejected segments and compare prompted with prompt-free fallback.")
     if result.detected_language.casefold() != result.language.casefold() and result.language != "Hinglish":
         return "Language detection", "Review the language hint and detection window; do not rewrite the expected text."
     if result.technical_term_problems:
@@ -215,6 +218,7 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
         language_mode=language_hint,
         model_size=os.getenv("SPEAKSCRIBE_EVAL_MODEL", "small"),
         performance_mode=PerformanceMode.ACCURATE,
+        script_mode="devanagari" if case["language"] == "Hindi" else "original",
     )
     audio = load_wav(path, config.sample_rate)
     started = time.monotonic()
