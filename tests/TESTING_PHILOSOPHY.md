@@ -15,7 +15,7 @@ language, high latency, duplicate output, dropped speech, and unstable results.
    processing diagnostics rather than assuming Whisper is the cause.
 3. Make a general implementation change, never an expected-text change.
 4. Rerun the failed case and its four-case scenario.
-5. Rerun English, Hindi, and Hinglish groups, then all 120 cases.
+5. Rerun English, Hindi, and Hinglish groups, then every configured case.
 6. Compare accuracy, WER, first/final latency, memory, and regression flags.
 
 An accuracy improvement accompanied by unacceptable latency, memory growth, crashes, or

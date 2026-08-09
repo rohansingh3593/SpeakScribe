@@ -1,6 +1,25 @@
 {
   "suite": "SpeakScribe 120-case validation",
   "version": 1,
+  "baseline_count": 120,
+  "growth_policy": {
+    "minimum_cases": 120,
+    "extension_required_fields": [
+      "reason",
+      "feature",
+      "type"
+    ],
+    "test_types": [
+      "baseline",
+      "feature",
+      "integration",
+      "edge",
+      "stress",
+      "regression",
+      "performance",
+      "stability"
+    ]
+  },
   "cases": [
     {
       "id": "CLEAR-NORMAL-SPEECH-01",

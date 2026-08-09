@@ -1,11 +1,11 @@
-# 120-case speech validation suite
+# Extensible speech validation suite
 
 The binding diagnostic principles are documented in
 [`TESTING_PHILOSOPHY.md`](TESTING_PHILOSOPHY.md). Tests intentionally seek breaking
 points; expected transcripts and thresholds must not be changed to chase a pass rate.
 
-`expected/transcripts.json` contains 30 scenarios with four genuinely different
-variations each. The tracked `speech_cases/01_normal` through
+`expected/transcripts.json` starts with a 120-case baseline: 30 scenarios with four
+genuinely different variations each. It is a minimum, not a fixed suite size. The tracked `speech_cases/01_normal` through
 `speech_cases/30_combined` directories are the stable destinations for recordings.
 
 Record the specified sentence and conditions for each case, preserving its filename.
@@ -54,7 +54,17 @@ ten case durations so that an unusually fast or slow first case does not dominat
 Tests over the configurable five-second default are marked `SLOW` but retain their
 accuracy status. Ctrl+C saves the collected results as an `interrupted_report_*` set.
 
-Recommended sequence to run all 120 cases, write reports, and then remove only
+## Growing the suite
+
+The first 120 entries are the preserved baseline, not a ceiling. Add a case when it
+protects a distinct feature, interaction, boundary, production failure, or regression.
+Every entry after the baseline must include `reason`, `feature`, and `type` metadata;
+supported types are declared in the manifest growth policy. New cases are collected
+automatically by both pytest and the evaluation runner, and progress totals are derived
+from the manifest rather than hardcoded. Do not relax comparison thresholds, rewrite an
+expected transcript, or add test-only recognition behavior to turn a useful failure green.
+
+Recommended sequence to run every configured case, write reports, and then remove only
 synthetic audio while retaining human recordings:
 
 ```powershell
@@ -66,9 +76,9 @@ python tests/run_speech_suite.py --cleanup-after generated
 
 Always use `python -m pip`, not a bare `pip`, so packages are installed into the same
 virtual environment that runs the suite. A missing ASR dependency now stops once with
-`ASR_DEPENDENCY_ERROR` before the 120 cases, instead of producing 120 identical failures.
+`ASR_DEPENDENCY_ERROR` before evaluation, instead of producing one identical failure per case.
 
-The command prints start/completion timestamps, individual `[ASR 001/120]` progress,
+The command prints start/completion timestamps, dynamic `[001/NNN]` progress,
 elapsed time, a continuously updated ETA, per-stage duration, final suite status, total
 execution time, and report locations. The ETA becomes meaningful after several cases;
 runtime depends on audio length and hardware, and CPU inference can take substantially
@@ -92,7 +102,7 @@ status is never upgraded merely because a retry happened to produce a better res
 The cleanup runs in a `finally` block, including when generation or evaluation fails.
 To explicitly delete human recordings too, use `--cleanup-after all`. Without a cleanup
 option, audio is retained for the next run. Do not run `test_transcription.py` after
-`run_speech_suite.py` unless a second complete 120-case ASR run is intended.
+`run_speech_suite.py` unless a second complete ASR run is intended.
 
 TTS uses installed operating-system voices and never imports the ASR engine. Windows
 uses `System.Speech` (install a `hi-IN` voice for Hindi; Hinglish prefers `hi-IN` then
@@ -118,19 +128,19 @@ Remove only synthetic/generated test audio (human recordings are preserved):
 python tests/generate_test_audio.py --remove-generated
 ```
 
-To intentionally remove all 120 manifest audio files, including any human recordings:
+To intentionally remove all manifest audio files, including any human recordings:
 
 ```powershell
 python tests/generate_test_audio.py --remove-all
 ```
 
-Run the 120 mandatory parametrized pytest regressions:
+Run every mandatory, manifest-driven parametrized ASR regression:
 
 ```powershell
 python -m pytest tests/test_transcription.py
 ```
 
-There is no opt-in flag and no skip path. Pytest always collects all 120 cases. Every
+There is no opt-in flag and no skip path. Pytest always collects every manifest case. Every
 missing WAV is generated and validated before Faster-Whisper is imported. If the TTS
 backend or a compatible language voice is unavailable, the case fails explicitly as
 `TTS_GENERATION_ERROR` rather than being skipped or counted as an ASR accuracy failure.

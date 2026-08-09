@@ -1,4 +1,4 @@
-"""Mandatory 120-case production ASR regression suite."""
+"""Mandatory, manifest-driven production ASR regression suite."""
 
 import importlib.util
 import json

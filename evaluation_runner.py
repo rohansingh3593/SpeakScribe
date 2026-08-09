@@ -141,16 +141,9 @@ def compare_transcripts(expected: str, actual: str) -> tuple[float, float, EditD
     wer = edits / max(1, len(reference))
     word_accuracy = 1.0 - min(1.0, wer)
     sequence = SequenceMatcher(None, reference, hypothesis, autojunk=False).ratio()
-    # WER remains the strict, auditable metric. Character similarity separately
-    # recognizes close inflection/pronunciation spellings (especially Devanagari)
-    # instead of classifying every near-spelled word as wholly absent.
-    if re.search(r"[\u0900-\u097f]", expected + actual):
-        character_similarity = SequenceMatcher(
-            None, " ".join(reference), " ".join(hypothesis), autojunk=False).ratio()
-        similarity = 100.0 * (0.5 * word_accuracy + 0.2 * sequence +
-                              0.3 * character_similarity)
-    else:
-        similarity = 100.0 * (0.7 * word_accuracy + 0.3 * sequence)
+    # WER and word-sequence similarity deliberately remain strict. Accent and
+    # spelling errors are diagnostic evidence, not a reason to lower thresholds.
+    similarity = 100.0 * (0.7 * word_accuracy + 0.3 * sequence)
     return round(similarity, 2), round(wer, 4), details
 
 

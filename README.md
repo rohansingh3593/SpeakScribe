@@ -539,13 +539,13 @@ and non-silent RMS before ASR runs. Deterministic seed 42 drives noise/office/fa
 keyboard transforms, while metadata controls rate, volume, and silence. TTS failures
 remain infrastructure errors rather than being counted as failed recognition.
 
-The comprehensive suite is stored in `tests/expected/transcripts.json`: exactly 120
-cases across 30 scenarios, with four distinct English/Hindi/Hinglish/edge variations
+The comprehensive suite is stored in `tests/expected/transcripts.json`: a 120-case
+baseline across 30 scenarios, with four distinct English/Hindi/Hinglish/edge variations
 per scenario. Recordings belong in the tracked `tests/speech_cases/01_normal` through
 `30_combined` folders. `python evaluation_runner.py` now defaults to this suite and
 generates Markdown, JSON, and CSV reports under `tests/results/`, including scenario,
 language, difficulty, technical-term, number, latency, partial-update, top-error, and
-root-cause analyses. The 120 production pytest cases are mandatory and never skipped;
+root-cause analyses. Every configured production pytest case is mandatory and never skipped;
 see `tests/README.md` for the command and recording requirements.
 
 ## Root-cause diagnostics
