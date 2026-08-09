@@ -15,7 +15,9 @@ import tempfile
 import wave
 
 TEST_RANDOM_SEED = 42
-GENERATOR_VERSION = 2
+# Version 3 replaces the low-fidelity Windows Hindi SAPI primary backend with a
+# neural Hindi voice. Existing managed recordings are rebuilt automatically.
+GENERATOR_VERSION = 3
 MANIFEST_PATH = Path(__file__).parent / "expected" / "transcripts.json"
 GENERATED_MANIFEST = Path(__file__).parent / "generated_audio_manifest.json"
 DEVANAGARI_PATTERN = range(0x0900, 0x0980)
@@ -176,6 +178,20 @@ def _run_edge_tts(text: str, language: str, output: Path,
 
 def _run_windows_tts(text: str, language: str, output: Path,
                      rate: int, variation: int) -> str:
+    has_devanagari = any(ord(character) in DEVANAGARI_PATTERN for character in text)
+    if language == "Hindi" or has_devanagari:
+        try:
+            return _run_edge_tts(text, language, output, rate, variation)
+        except RuntimeError as neural_error:
+            try:
+                return _run_windows_sapi(text, language, output, rate, variation)
+            except RuntimeError as sapi_error:
+                raise RuntimeError(
+                    f"Neural Hindi TTS failed: {neural_error} "
+                    f"Offline SAPI fallback failed: {sapi_error}"
+                ) from sapi_error
+    # Installed SAPI voices are sufficiently clear for English and avoid making
+    # ordinary English fixture generation depend on network access.
     try:
         return _run_windows_sapi(text, language, output, rate, variation)
     except RuntimeError as sapi_error:

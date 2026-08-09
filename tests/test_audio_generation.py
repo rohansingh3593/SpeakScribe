@@ -117,18 +117,49 @@ def test_remove_all_audio_requires_explicit_include_human(monkeypatch, tmp_path)
     assert not audio.exists()
 
 
-def test_windows_tts_uses_neural_fallback_when_sapi_voice_is_missing(monkeypatch, tmp_path):
+def test_windows_hindi_uses_neural_voice_before_sapi(monkeypatch, tmp_path):
+    calls = []
     monkeypatch.setattr(
         audio_generation, "_run_windows_sapi",
-        lambda *_args: (_ for _ in ()).throw(RuntimeError("missing hi-IN")),
+        lambda *_args: calls.append("sapi") or "sapi:hi-IN",
     )
-    monkeypatch.setattr(audio_generation, "_run_edge_tts", lambda *_args: "edge-tts:hi-IN")
+    monkeypatch.setattr(
+        audio_generation, "_run_edge_tts",
+        lambda *_args: calls.append("neural") or "edge-tts:hi-IN",
+    )
 
     voice = audio_generation._run_windows_tts(
         "आज काम पूरा करना है", "Hindi", tmp_path / "hindi.wav", 0, 0,
     )
 
     assert voice == "edge-tts:hi-IN"
+    assert calls == ["neural"]
+
+
+def test_windows_hindi_falls_back_to_offline_sapi_when_neural_is_unavailable(
+        monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        audio_generation, "_run_edge_tts",
+        lambda *_args: (_ for _ in ()).throw(RuntimeError("network unavailable")),
+    )
+    monkeypatch.setattr(audio_generation, "_run_windows_sapi", lambda *_args: "sapi:hi-IN")
+
+    voice = audio_generation._run_windows_tts(
+        "आज काम पूरा करना है", "Hindi", tmp_path / "hindi.wav", 0, 0,
+    )
+
+    assert voice == "sapi:hi-IN"
+
+
+def test_windows_english_keeps_offline_sapi_as_primary(monkeypatch, tmp_path):
+    monkeypatch.setattr(audio_generation, "_run_windows_sapi", lambda *_args: "sapi:en-IN")
+    monkeypatch.setattr(
+        audio_generation, "_run_edge_tts",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("must not use network")),
+    )
+    assert audio_generation._run_windows_tts(
+        "Please run the tests", "English", tmp_path / "english.wav", 0, 0,
+    ) == "sapi:en-IN"
 
 
 def test_windows_tts_reports_both_backend_failures(monkeypatch, tmp_path):
@@ -141,13 +172,14 @@ def test_windows_tts_reports_both_backend_failures(monkeypatch, tmp_path):
         lambda *_args: (_ for _ in ()).throw(RuntimeError("network unavailable")),
     )
 
-    with pytest.raises(RuntimeError, match="missing SAPI voice.*network unavailable"):
+    with pytest.raises(RuntimeError, match="network unavailable.*missing SAPI voice"):
         audio_generation._run_windows_tts(
             "आज काम पूरा करना है", "Hindi", tmp_path / "hindi.wav", 0, 0,
         )
 
 
-def test_stale_synthetic_audio_is_regenerated(monkeypatch, tmp_path):
+@pytest.mark.parametrize("old_version", (1, 2))
+def test_stale_synthetic_audio_is_regenerated(monkeypatch, tmp_path, old_version):
     audio = tmp_path / CASE["audio"]
     audio.parent.mkdir(parents=True)
     audio.write_bytes(b"old")
@@ -155,7 +187,7 @@ def test_stale_synthetic_audio_is_regenerated(monkeypatch, tmp_path):
     manifest.write_text(
         '{"seed": 42, "files": [{"audio_file": "speech_cases/case.wav", '
         '"audio_source": "synthetic", "generated": true, "status": "GENERATED", '
-        '"generator_version": 1}]}', encoding="utf-8",
+        f'"generator_version": {old_version}}}]}}', encoding="utf-8",
     )
     monkeypatch.setattr(audio_generation, "GENERATED_MANIFEST", manifest)
     monkeypatch.setattr(audio_generation, "validate_wav", lambda _path: {"duration": 1})

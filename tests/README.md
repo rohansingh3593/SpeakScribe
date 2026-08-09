@@ -104,9 +104,9 @@ To explicitly delete human recordings too, use `--cleanup-after all`. Without a 
 option, audio is retained for the next run. Do not run `test_transcription.py` after
 `run_speech_suite.py` unless a second complete ASR run is intended.
 
-TTS uses installed operating-system voices and never imports the ASR engine. Windows
-uses `System.Speech` (install a `hi-IN` voice for Hindi; Hinglish prefers `hi-IN` then
-`en-IN`), macOS uses `say` with Samantha/Lekha, and Linux requires `espeak-ng` or
+TTS is independent from recognition and never imports the ASR engine itself. Windows
+uses neural Hindi synthesis with a `System.Speech` fallback, macOS uses `say` with
+Samantha/Lekha, and Linux requires `espeak-ng` or
 `espeak`. A missing language-capable backend is reported as `TTS_GENERATION_ERROR`,
 not as zero ASR accuracy. Generation metadata is stored in
 `generated_audio_manifest.json`; an existing unmanaged WAV is treated as human and is
@@ -117,10 +117,13 @@ On Windows, inspect available voices with `python tests/generate_test_audio.py
 --list-voices`. If `hi-IN` is absent, install **Hindi → Language options → Speech**
 from Windows Settings, or run the elevated PowerShell command printed by the generator.
 Latin-only Hinglish can fall back to an installed English voice; Devanagari never does.
-When an appropriate SAPI voice is missing, the generator automatically tries the
-`edge-tts` Microsoft neural Hindi/Indian-English fallback. Install updated dependencies
-with `python -m pip install -r requirements.txt`; the neural fallback needs internet
-access only while creating missing WAV files.
+On Windows, Hindi and Devanagari fixtures use Microsoft neural `edge-tts` first because
+the legacy SAPI Hindi voice produced systematic pronunciation artifacts that obscured
+ASR regressions. An installed `hi-IN` SAPI voice remains the offline fallback. English
+continues to prefer an installed SAPI voice. Install updated dependencies with
+`python -m pip install -r requirements.txt`; neural synthesis needs internet access only
+while creating missing or stale synthetic WAV files. Generator-version changes rebuild
+managed synthetic audio but never overwrite human recordings.
 
 Remove only synthetic/generated test audio (human recordings are preserved):
 
