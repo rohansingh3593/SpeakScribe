@@ -2,7 +2,7 @@
 
 import logging
 
-LOGGER_NAME = "voice_to_text"
+LOGGER_NAME = "speakscribe"
 _logger = logging.getLogger(LOGGER_NAME)
 _logger.addHandler(logging.NullHandler())
 

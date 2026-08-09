@@ -3,11 +3,11 @@
 from abc import ABC, abstractmethod
 from threading import Event, Lock
 
-from voice_to_text.audio.microphone import default_microphone
-from voice_to_text.audio.processor import prepare_audio, rms
-from voice_to_text.config import SpeechConfig
-from voice_to_text.exceptions import MicrophoneError
-from voice_to_text.logging import get_logger
+from speakscribe.audio.microphone import default_microphone
+from speakscribe.audio.processor import prepare_audio, rms
+from speakscribe.config import SpeechConfig
+from speakscribe.exceptions import MicrophoneError
+from speakscribe.logging import get_logger
 
 LOGGER = get_logger("audio")
 

@@ -1,4 +1,4 @@
-"""Public configuration for the reusable voice-to-text service."""
+"""Public configuration for the reusable speakscribe service."""
 
 from dataclasses import dataclass
 

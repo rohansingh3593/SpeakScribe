@@ -1,6 +1,6 @@
 """One-shot library usage without any GUI dependency."""
 
-from voice_to_text import SpeechToText
+from speakscribe import SpeechToText
 
 
 with SpeechToText() as speech:

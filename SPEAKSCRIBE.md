@@ -1,6 +1,6 @@
-# Voice To Text Library
+# SpeakScribe Library
 
-`voice-to-text` is the reusable, UI-independent speech layer extracted from
+`speakscribe` is the reusable, UI-independent speech layer extracted from
 SpeakScribe. The package contains no Tkinter, PyQt, Flask, FastAPI, or display
 dependencies. Applications receive structured results and decide how to display them.
 
@@ -18,7 +18,7 @@ SoundCard capture and `whisper` for the Faster-Whisper backend; `all` installs b
 ## Public API
 
 ```python
-from voice_to_text import SpeechConfig, SpeechToText
+from speakscribe import SpeakScribeError, SpeechConfig, SpeechToText
 
 config = SpeechConfig(language="en-IN", sample_rate=16_000)
 with SpeechToText(config) as speech:
@@ -29,7 +29,7 @@ with SpeechToText(config) as speech:
 Continuous generator usage exposes each available result immediately:
 
 ```python
-from voice_to_text import SpeechToText
+from speakscribe import SpeechToText
 
 speech = SpeechToText()
 for result in speech.listen_continuously():
@@ -41,7 +41,7 @@ with `stop()` or `close()`. Inject a `BaseAudioRecorder` and
 `BaseTranscriptionEngine` to use a different microphone stack or ASR provider.
 
 The library installs a `NullHandler` only. Parent applications retain full control of
-logging through the `voice_to_text` logger or `voice_to_text.logging.configure_logging`.
+logging through the `speakscribe` logger or `speakscribe.logging.configure_logging`.
 
 See `examples/cli_example.py`, `examples/simple_example.py`, and
 `examples/tkinter_example.py`.

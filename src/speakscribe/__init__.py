@@ -1,8 +1,8 @@
-"""Reusable voice-to-text public API with no GUI dependencies."""
+"""Reusable speakscribe public API with no GUI dependencies."""
 
 from .config import SpeechConfig
 from .exceptions import (
-    AudioDeviceNotFoundError, MicrophoneError, ServiceStateError,
+    AudioDeviceNotFoundError, MicrophoneError, ServiceStateError, SpeakScribeError,
     TranscriptionError, VoiceToTextError,
 )
 from .models import TranscriptionResult
@@ -11,6 +11,6 @@ from .transcription import BaseTranscriptionEngine, FasterWhisperEngine
 
 __all__ = [
     "AudioDeviceNotFoundError", "BaseTranscriptionEngine", "FasterWhisperEngine",
-    "MicrophoneError", "ServiceStateError", "SpeechConfig", "SpeechToText",
+    "MicrophoneError", "ServiceStateError", "SpeakScribeError", "SpeechConfig", "SpeechToText",
     "TranscriptionError", "TranscriptionResult", "VoiceToTextError",
 ]

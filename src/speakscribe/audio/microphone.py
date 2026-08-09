@@ -2,7 +2,7 @@
 
 from importlib import import_module
 
-from voice_to_text.exceptions import AudioDeviceNotFoundError, MicrophoneError
+from speakscribe.exceptions import AudioDeviceNotFoundError, MicrophoneError
 
 
 def default_microphone():

@@ -4,7 +4,7 @@ import queue
 import threading
 import tkinter as tk
 
-from voice_to_text import SpeechToText
+from speakscribe import SpeechToText
 
 
 class VoiceApp:

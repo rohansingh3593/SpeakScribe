@@ -10,7 +10,7 @@ import warnings
 
 import numpy as np
 
-from voice_to_text.audio.processor import audio_normalization_gain, prepare_audio_for_asr
+from speakscribe.audio.processor import audio_normalization_gain, prepare_audio_for_asr
 
 from app.config.settings import AppConfig
 from app.utils.logger import get_logger, log_exception

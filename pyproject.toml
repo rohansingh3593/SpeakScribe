@@ -3,10 +3,10 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "voice-to-text"
+name = "speakscribe"
 version = "0.1.0"
 description = "UI-independent microphone and streaming speech-to-text library"
-readme = "VOICE_TO_TEXT.md"
+readme = "SPEAKSCRIBE.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
 authors = [{name = "SpeakScribe contributors"}]

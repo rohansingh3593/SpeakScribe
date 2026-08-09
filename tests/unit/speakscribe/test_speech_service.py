@@ -3,11 +3,11 @@ from threading import Event
 import numpy as np
 import pytest
 
-from voice_to_text import (
+from speakscribe import (
     BaseTranscriptionEngine, MicrophoneError, ServiceStateError, SpeechConfig,
     SpeechToText, TranscriptionError, TranscriptionResult,
 )
-from voice_to_text.audio import BaseAudioRecorder
+from speakscribe.audio import BaseAudioRecorder
 
 
 class FakeRecorder(BaseAudioRecorder):

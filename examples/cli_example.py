@@ -1,6 +1,6 @@
 """Continuous terminal transcription. Ctrl+C closes the microphone safely."""
 
-from voice_to_text import SpeechToText
+from speakscribe import SpeechToText
 
 
 def main() -> None:

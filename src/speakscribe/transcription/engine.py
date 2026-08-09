@@ -1,11 +1,11 @@
 """Optional Faster-Whisper backend, imported only when it is actually used."""
 
-from voice_to_text.config import SpeechConfig
-from voice_to_text.exceptions import TranscriptionError
-from voice_to_text.logging import get_logger
-from voice_to_text.models import TranscriptionResult
-from voice_to_text.transcription.base import BaseTranscriptionEngine
-from voice_to_text.utils.helpers import language_code
+from speakscribe.config import SpeechConfig
+from speakscribe.exceptions import TranscriptionError
+from speakscribe.logging import get_logger
+from speakscribe.models import TranscriptionResult
+from speakscribe.transcription.base import BaseTranscriptionEngine
+from speakscribe.utils.helpers import language_code
 
 LOGGER = get_logger("transcription.whisper")
 

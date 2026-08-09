@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from voice_to_text.audio.processor import prepare_audio, rms, to_mono
-from voice_to_text.exceptions import AudioDeviceNotFoundError, MicrophoneError
-import voice_to_text.audio.microphone as microphone
+from speakscribe.audio.processor import prepare_audio, rms, to_mono
+from speakscribe.exceptions import AudioDeviceNotFoundError, MicrophoneError
+import speakscribe.audio.microphone as microphone
 
 
 def test_audio_processor_downmixes_centers_and_bounds_audio():

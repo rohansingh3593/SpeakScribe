@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 
-from voice_to_text.models import TranscriptionResult
+from speakscribe.models import TranscriptionResult
 
 
 class BaseTranscriptionEngine(ABC):

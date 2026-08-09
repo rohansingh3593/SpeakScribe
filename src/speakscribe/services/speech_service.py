@@ -3,12 +3,12 @@
 from collections.abc import Callable, Iterator
 from threading import Event, RLock, Thread, current_thread
 
-from voice_to_text.audio import BaseAudioRecorder, SoundCardRecorder
-from voice_to_text.config import SpeechConfig
-from voice_to_text.exceptions import ServiceStateError, TranscriptionError, VoiceToTextError
-from voice_to_text.logging import get_logger
-from voice_to_text.models import TranscriptionResult
-from voice_to_text.transcription import BaseTranscriptionEngine, FasterWhisperEngine
+from speakscribe.audio import BaseAudioRecorder, SoundCardRecorder
+from speakscribe.config import SpeechConfig
+from speakscribe.exceptions import ServiceStateError, SpeakScribeError, TranscriptionError
+from speakscribe.logging import get_logger
+from speakscribe.models import TranscriptionResult
+from speakscribe.transcription import BaseTranscriptionEngine, FasterWhisperEngine
 
 LOGGER = get_logger("service")
 
@@ -56,7 +56,7 @@ class SpeechToText:
                 break
             try:
                 result = engine.transcribe(audio, self.config.sample_rate)
-            except VoiceToTextError:
+            except SpeakScribeError:
                 raise
             except Exception as exc:
                 raise TranscriptionError("Transcription engine failed") from exc
@@ -87,7 +87,7 @@ class SpeechToText:
                 self.stop()
 
     def start_continuous(self, on_result: Callable[[TranscriptionResult], None],
-                         on_error: Callable[[VoiceToTextError], None] | None = None) -> Thread:
+                         on_error: Callable[[SpeakScribeError], None] | None = None) -> Thread:
         if not callable(on_result):
             raise TypeError("on_result must be callable")
         with self._lock:
@@ -99,7 +99,7 @@ class SpeechToText:
                 try:
                     for result in self._results():
                         on_result(result)
-                except VoiceToTextError as exc:
+                except SpeakScribeError as exc:
                     LOGGER.exception("Continuous transcription failed")
                     if on_error is not None:
                         on_error(exc)
@@ -107,7 +107,7 @@ class SpeechToText:
                     self.stop()
 
             self._callback_thread = Thread(
-                target=worker, name="voice-to-text", daemon=True)
+                target=worker, name="speakscribe", daemon=True)
             self._callback_thread.start()
             return self._callback_thread
 
