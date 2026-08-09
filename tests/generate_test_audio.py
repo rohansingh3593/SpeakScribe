@@ -1,7 +1,6 @@
 """CLI for generating missing synthetic speech validation assets."""
 
 import argparse
-import json
 from pathlib import Path
 import sys
 
@@ -15,6 +14,7 @@ from tests.audio_generation import (
     list_windows_voices,
     remove_test_audio,
 )
+from tests.manifest_policy import load_manifest
 
 
 def main() -> int:
@@ -33,7 +33,7 @@ def main() -> int:
         print(list_windows_voices())
         return 0
     root = ROOT
-    cases = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))["cases"]
+    _, cases = load_manifest(MANIFEST_PATH)
     if args.remove_generated or args.remove_all:
         result = remove_test_audio(cases, root, include_human=args.remove_all)
         print("=" * 40, "\n TEST AUDIO CLEANUP\n", "=" * 40, sep="")

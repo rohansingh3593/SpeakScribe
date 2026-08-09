@@ -1,5 +1,5 @@
 {
-  "suite": "SpeakScribe 120-case validation",
+  "suite": "SpeakScribe extensible speech validation",
   "version": 1,
   "baseline_count": 120,
   "growth_policy": {

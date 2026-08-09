@@ -21,6 +21,7 @@ from tests.suite_logging import (
     SLOW_TEST_WARNING_SECONDS, ProgressTracker, aggregate_results,
     configure_logging, finalize_latest, format_duration as suite_duration, log,
 )
+from tests.manifest_policy import load_manifest
 
 
 TECHNICAL_TERMS = {
@@ -521,7 +522,7 @@ def main(argv=None) -> int:
                                           log_level=args.log_level)
     run_started_at = datetime.now().astimezone()
     manifest_path = Path(args.manifest).resolve()
-    cases = json.loads(manifest_path.read_text(encoding="utf-8"))["cases"]
+    _, cases = load_manifest(manifest_path)
     root = Path.cwd()
     generation_errors = []
     if not args.no_generate:

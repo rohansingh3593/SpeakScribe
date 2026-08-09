@@ -1,13 +1,13 @@
 """Mandatory, manifest-driven production ASR regression suite."""
 
 import importlib.util
-import json
 from pathlib import Path
 
 import pytest
 
 from evaluation_runner import evaluate_case_with_retries
 from tests.audio_generation import ensure_audio
+from tests.manifest_policy import load_manifest
 
 
 if importlib.util.find_spec("faster_whisper") is None:
@@ -19,9 +19,7 @@ if importlib.util.find_spec("faster_whisper") is None:
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CASES = json.loads(
-    (ROOT / "tests/expected/transcripts.json").read_text(encoding="utf-8")
-)["cases"]
+_, CASES = load_manifest(ROOT / "tests/expected/transcripts.json")
 _MODEL_PROVIDER = None
 
 
