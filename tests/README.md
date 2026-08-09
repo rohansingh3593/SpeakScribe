@@ -3,6 +3,8 @@
 The binding diagnostic principles are documented in
 [`TESTING_PHILOSOPHY.md`](TESTING_PHILOSOPHY.md). Tests intentionally seek breaking
 points; expected transcripts and thresholds must not be changed to chase a pass rate.
+The current grouped Hindi failure investigation and honest retest requirements are in
+[`FAILURE_ANALYSIS.md`](FAILURE_ANALYSIS.md).
 
 `expected/transcripts.json` starts with a 120-case baseline: 30 scenarios with four
 genuinely different variations each. It is a minimum, not a fixed suite size. The tracked `speech_cases/01_normal` through

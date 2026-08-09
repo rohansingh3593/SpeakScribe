@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from evaluation_runner import (
-    compare_transcripts, evaluate_case_with_retries, evaluation_error_result, format_duration,
+    _root_cause, compare_transcripts, evaluate_case_with_retries, evaluation_error_result, format_duration,
     normalize_transcript, regression_metrics, status_for_similarity,
 )
 
@@ -101,3 +101,25 @@ def test_case_crash_is_preserved_as_structured_result():
     assert result.status == "CRASH"
     assert result.quality_flags == ["CRASH"]
     assert "decoder stopped" in result.actual
+
+
+def test_pause_feature_is_not_misdiagnosed_as_vad_when_full_audio_was_decoded():
+    result = SimpleNamespace(
+        quality_flags=[], detected_language="Hindi", language="Hindi",
+        technical_term_problems=[], dropped_chunks=0, duplicated_words=[],
+        real_time_factor=0.5, status="FAIL", punctuation_difference=False,
+        similarity=20,
+    )
+    cause, _ = _root_cause({"features": ["long_pause"]}, result)
+    assert cause == "Whisper decoding"
+
+
+def test_actual_dropped_chunks_are_diagnosed_as_vad_or_chunk_loss():
+    result = SimpleNamespace(
+        quality_flags=[], detected_language="English", language="English",
+        technical_term_problems=[], dropped_chunks=2, duplicated_words=[],
+        real_time_factor=0.5, status="FAIL", punctuation_difference=False,
+        similarity=20,
+    )
+    cause, _ = _root_cause({"features": ["long_pause"]}, result)
+    assert cause == "VAD/chunk loss"

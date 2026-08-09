@@ -203,12 +203,12 @@ def _root_cause(case: dict, result: EvaluationResult) -> tuple[str, str]:
     if result.technical_term_problems:
         return "Technical vocabulary", "Tune general vocabulary prompting and validate the whole technical category."
     if "low_volume" in features:
-        return "Low-volume sensitivity", "Inspect RMS/VAD diagnostics and tune adaptive thresholds using all low-volume cases."
+        return "Low-volume decoding", "Inspect audio level and decoder confidence; improve general level handling without amplifying noise."
     if features.intersection({"background_noise", "traffic_noise", "office_noise", "fan_noise_high"}):
         return "Noise sensitivity", "Improve speech/noise discrimination and rerun the complete noise category."
-    if features.intersection({"long_pause", "small_word_pauses", "silence_before", "silence_after"}):
-        return "VAD", "Review pre-roll, hangover, and voiced-duration handling across the related pause cases."
-    if result.duplicate_partials:
+    if result.dropped_chunks:
+        return "VAD/chunk loss", "Review pre-roll, hangover, queue pressure, and dropped audio across related cases."
+    if result.duplicated_words:
         return "Partial-result merging", "Improve stable-prefix merging without hardcoding this transcript."
     if result.real_time_factor > 1 and result.status != "FAIL":
         return "Performance/latency", "Reduce redundant partial inference or select a generally faster decode profile."

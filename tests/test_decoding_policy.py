@@ -1,0 +1,41 @@
+from decoding_policy import initial_prompt
+
+
+VOCABULARY = ("PostgreSQL", "MongoDB", "Jenkins", "CPU", "RAM")
+
+
+def prompt(**overrides):
+    values = {
+        "final": True, "sample_count": 32_000, "sample_rate": 16_000,
+        "language_mode": "hi", "vocabulary": VOCABULARY, "context": "",
+    }
+    values.update(overrides)
+    return initial_prompt(**values)
+
+
+def test_pinned_hindi_does_not_receive_english_instruction_or_vocabulary_prompt():
+    assert prompt() is None
+
+
+def test_hindi_can_use_genuine_prior_transcript_context():
+    assert prompt(context="पिछला वाक्य पूरा हुआ") == "पिछला वाक्य पूरा हुआ"
+
+
+def test_auto_hinglish_mode_receives_general_vocabulary_bias():
+    value = prompt(language_mode="auto")
+    assert value == "PostgreSQL, MongoDB, Jenkins, CPU, RAM"
+    assert "Transcribe" not in value
+
+
+def test_english_combines_real_context_and_vocabulary_without_instructions():
+    value = prompt(language_mode="en", context="The deployment finished")
+    assert value.startswith("The deployment finished. PostgreSQL")
+    assert "language" not in value.casefold()
+
+
+def test_partials_never_receive_a_prompt():
+    assert prompt(final=False, language_mode="auto") is None
+
+
+def test_subsecond_finals_do_not_receive_a_prompt():
+    assert prompt(sample_count=15_999, language_mode="auto") is None

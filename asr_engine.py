@@ -15,6 +15,7 @@ from psutil import Process
 
 from audio_pipeline import ASRJob, audio_statistics, prepare_audio_for_asr
 from config import AppConfig
+from decoding_policy import initial_prompt
 from logger import log_exception, log_print
 from text_processing import (
     apply_script_mode, clean_text, detect_language, is_low_quality_text,
@@ -68,21 +69,11 @@ class WhisperEngine:
         # decoding to keep CPU fallback latency close to real time.
         beam_size = profile.beam_size if job.final else 1
         best_of = profile.best_of if job.final else 1
-        vocabulary = ", ".join(self.config.vocabulary)
-        final_prompt = (
-            "Speech may be Hindi (हिन्दी), English, or naturally mixed Hinglish. "
-            "Transcribe exactly in the spoken language and original script; do not "
-            f"translate. Technical vocabulary: {vocabulary}."
+        prompt = initial_prompt(
+            final=job.final, sample_count=len(job.audio), sample_rate=self.config.sample_rate,
+            language_mode=self.config.language_mode, vocabulary=self.config.vocabulary,
+            context=context,
         )
-        if context:
-            final_prompt += f" Recent context: {context}"
-        # A long prompt on sub-second audio can itself seed hallucinations (for
-        # example repeated URLs). Partials prioritize the actual audio; finals use
-        # vocabulary and recent context for correction.
-        # Context prompts improve long technical dictation, but on the supplied
-        # short/noisy clips they seeded URL-like hallucinations. Use them only
-        # after enough acoustic evidence has accumulated.
-        prompt = final_prompt if job.final and len(job.audio) >= self.config.sample_rate else None
         language = None if self.config.language_mode == "auto" else self.config.language_mode
         prepared = prepare_audio_for_asr(job.audio)
         raw_stats = audio_statistics(job.audio)
