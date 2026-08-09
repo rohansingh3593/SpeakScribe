@@ -34,11 +34,11 @@ def detect_language(text: str, whisper_language: str | None = None) -> str:
 def clean_text(text: str, final: bool = False) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     text = re.sub(r"([,.!?])\1+", r"\1", text)
-    text = re.sub(r"\b([\w'\u0900-\u097f]+)(?:\s+\1\b)+", r"\1", text,
+    # Preserve a deliberate double word ("मैं मैं", "very very"). Collapse only
+    # 3+ adjacent copies to two; severe repetition remains covered by the
+    # low-quality detector instead of silently rewriting plausible speech.
+    text = re.sub(r"\b([\w'\u0900-\u097f]+)(?:\s+\1\b){2,}", r"\1 \1", text,
                   flags=re.IGNORECASE)
-    words = text.split()
-    text = " ".join(word for index, word in enumerate(words)
-                    if index == 0 or word.casefold() != words[index - 1].casefold())
     for raw, canonical in TECHNICAL_CANONICAL.items():
         text = re.sub(rf"(?<!\w){re.escape(raw)}(?!\w)", canonical, text,
                       flags=re.IGNORECASE)

@@ -8,6 +8,12 @@ the reported mean similarity was **31.33%** and mean WER was **0.7188**. CUDA co
 initialize, so inference fell back to CPU; that explains latency but not the systematic
 language-specific substitutions.
 
+A follow-up run after the neural-fixture/prompt correction reported **15 failures and
+15 passes** in the selected Hindi group. The remaining 15 failures averaged **36.10%**
+similarity and **0.6550** WER. Compared with the original failing set, that is +4.77
+similarity points and -0.0638 WER, while four previously failing cases left the failure
+list. Per-case latency was not supplied, so no latency improvement is claimed.
+
 ## Verified common causes
 
 1. **Synthetic Hindi fixture fidelity.** Windows selected the legacy Hindi SAPI voice
@@ -24,6 +30,14 @@ language-specific substitutions.
    `vad_filter=False`, so a pause feature alone does not prove VAD loss. VAD/chunk loss
    is now reported only when dropped chunks are observed, and partial merging only when
    duplicated final words are observed.
+4. **Vocabulary sent through the wrong decoder channel.** Technical vocabulary now uses
+   Faster-Whisper's `hotwords` option instead of pretending to be previous transcript.
+   This preserves acoustic decoding while biasing PostgreSQL, MongoDB, Jenkins, CPU,
+   RAM, and other general configured terms.
+5. **Destructive post-processing.** Evaluation forced all Latin words in Hindi results
+   through ITRANS, corrupting legitimate code-switched terms, and cleanup erased every
+   adjacent repeated word. Evaluation now preserves Whisper's original script and
+   cleanup retains deliberate double words while bounding runs of three or more.
 
 ## Retest requirements
 

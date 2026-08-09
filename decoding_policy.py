@@ -10,8 +10,8 @@ def initial_prompt(*, final: bool, sample_count: int, sample_rate: int,
 
     Whisper's ``initial_prompt`` is previous transcript text, not a system prompt.
     Instructional English plus a large English vocabulary can dominate acoustically
-    weak Hindi clips. Pinned Hindi therefore receives only genuine prior transcript
-    context; auto/English modes may additionally receive vocabulary bias.
+    weak Hindi clips. All modes therefore receive only genuine prior transcript
+    context; vocabulary uses Faster-Whisper's dedicated hotword channel.
     """
     if not final or sample_count < sample_rate:
         return None
@@ -19,6 +19,11 @@ def initial_prompt(*, final: bool, sample_count: int, sample_rate: int,
     context = context.strip()
     if context:
         parts.append(context)
-    if language_mode != "hi" and vocabulary:
-        parts.append(", ".join(vocabulary))
     return ". ".join(parts) or None
+
+
+def hotwords(*, final: bool, vocabulary: tuple[str, ...]) -> str | None:
+    """Return vocabulary bias through Whisper's dedicated hotword channel."""
+    if not final or not vocabulary:
+        return None
+    return ", ".join(vocabulary)

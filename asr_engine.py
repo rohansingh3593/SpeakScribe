@@ -15,7 +15,7 @@ from psutil import Process
 
 from audio_pipeline import ASRJob, audio_statistics, prepare_audio_for_asr
 from config import AppConfig
-from decoding_policy import initial_prompt
+from decoding_policy import hotwords, initial_prompt
 from logger import log_exception, log_print
 from text_processing import (
     apply_script_mode, clean_text, detect_language, is_low_quality_text,
@@ -74,6 +74,7 @@ class WhisperEngine:
             language_mode=self.config.language_mode, vocabulary=self.config.vocabulary,
             context=context,
         )
+        vocabulary_bias = hotwords(final=job.final, vocabulary=self.config.vocabulary)
         language = None if self.config.language_mode == "auto" else self.config.language_mode
         prepared = prepare_audio_for_asr(job.audio)
         raw_stats = audio_statistics(job.audio)
@@ -88,7 +89,8 @@ class WhisperEngine:
             f"prepared_rms={prepared_stats['rms']:.6f} "
             f"prepared_peak={prepared_stats['peak']:.6f} finite={prepared_stats['finite']} "
             f"language={language or 'auto'} script={self.config.script_mode} "
-            f"beam={beam_size} prompt={'yes' if prompt else 'no'}"
+            f"beam={beam_size} prompt={'yes' if prompt else 'no'} "
+            f"hotwords={'yes' if vocabulary_bias else 'no'}"
         )
         if self.config.debug_audio_enabled and job.final:
             stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -103,6 +105,7 @@ class WhisperEngine:
                 prepared, language=language, task="transcribe",
                 beam_size=beam_size, best_of=best_of,
                 temperature=profile.temperature, initial_prompt=initial_prompt,
+                hotwords=vocabulary_bias,
                 condition_on_previous_text=False, vad_filter=self.config.vad_filter,
                 word_timestamps=False, no_speech_threshold=self.config.no_speech_threshold,
                 log_prob_threshold=self.config.min_avg_logprob,

@@ -20,8 +20,19 @@ def test_hindi_and_english_detection():
 def test_conservative_cleanup():
     raw = "i am working on sql alchemy upgrade upgrade and pr create karunga"
     assert clean_text(raw, final=True) == (
-        "I am working on SQLAlchemy upgrade and PR create karunga."
+        "I am working on SQLAlchemy upgrade upgrade and PR create karunga."
     )
+
+
+def test_cleanup_preserves_intentional_hindi_and_english_repetition():
+    assert clean_text("मैं मैं पहले रिपोर्ट देखूँगा", final=True) == (
+        "मैं मैं पहले रिपोर्ट देखूँगा।")
+    assert clean_text("This is very very important", final=True) == (
+        "This is very very important.")
+
+
+def test_cleanup_bounds_three_or_more_adjacent_copies_without_erasing_emphasis():
+    assert clean_text("go go go go now", final=True) == "Go go now."
 
 
 def test_history_overlap():

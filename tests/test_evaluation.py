@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 
 from evaluation_runner import (
-    _root_cause, compare_transcripts, evaluate_case_with_retries, evaluation_error_result, format_duration,
+    _root_cause, compare_transcripts, evaluate_case_with_retries, evaluation_error_result,
+    evaluation_language_settings, format_duration,
     normalize_transcript, regression_metrics, status_for_similarity,
 )
 
@@ -34,6 +35,18 @@ def test_status_boundaries():
     assert status_for_similarity(80) == "PASS"
     assert status_for_similarity(60) == "WARNING"
     assert status_for_similarity(59.99) == "FAIL"
+
+
+def test_evaluation_pins_language_without_transliterating_technical_terms():
+    assert evaluation_language_settings("Hindi") == ("hi", "original")
+    assert evaluation_language_settings("English") == ("en", "original")
+    assert evaluation_language_settings("Hinglish") == ("auto", "original")
+
+
+def test_evaluation_rejects_unknown_language_metadata():
+    import pytest
+    with pytest.raises(ValueError, match="Unsupported evaluation language"):
+        evaluation_language_settings("French")
 
 
 def test_format_duration_is_readable_and_stable():

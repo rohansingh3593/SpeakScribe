@@ -158,6 +158,17 @@ def status_for_similarity(similarity: float) -> str:
     return "FAIL"
 
 
+def evaluation_language_settings(language: str) -> tuple[str, str]:
+    """Pin monolingual decoding while preserving valid code-switched script."""
+    hints = {"English": "en", "Hindi": "hi", "Hinglish": "auto"}
+    if language not in hints:
+        raise ValueError(f"Unsupported evaluation language: {language}")
+    # Whisper already emits Hindi in Devanagari when pinned to hi. Forcing every
+    # Latin run through ITRANS corrupts legitimate terms such as `run`, CI, and
+    # repository names, so evaluation must assess the original decoder output.
+    return hints[language], "original"
+
+
 def load_wav(path: Path, target_rate: int):
     """Load PCM WAV with stdlib wave; import NumPy only for real evaluation."""
     import numpy as np
@@ -225,12 +236,12 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
     path = root / case["audio"]
     # Forcing all code-switched speech through Hindi decoding drops English words.
     # Pure Hindi/English remain pinned; mixed Hinglish uses Whisper detection.
-    language_hint = {"English": "en", "Hindi": "hi", "Hinglish": "auto"}[case["language"]]
+    language_hint, script_mode = evaluation_language_settings(case["language"])
     config = AppConfig(
         language_mode=language_hint,
         model_size=os.getenv("SPEAKSCRIBE_EVAL_MODEL", "small"),
         performance_mode=PerformanceMode.ACCURATE,
-        script_mode="devanagari" if case["language"] == "Hindi" else "original",
+        script_mode=script_mode,
     )
     audio = load_wav(path, config.sample_rate)
     process = Process()
