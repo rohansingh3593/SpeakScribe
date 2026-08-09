@@ -169,6 +169,11 @@ def evaluation_language_settings(language: str) -> tuple[str, str]:
     return hints[language], "devanagari" if language == "Hindi" else "original"
 
 
+def evaluation_model_size() -> str:
+    """Use an accuracy-capable multilingual model unless explicitly overridden."""
+    return os.getenv("SPEAKSCRIBE_EVAL_MODEL", "medium")
+
+
 def load_wav(path: Path, target_rate: int):
     """Load PCM WAV with stdlib wave; import NumPy only for real evaluation."""
     import numpy as np
@@ -239,7 +244,7 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
     language_hint, script_mode = evaluation_language_settings(case["language"])
     config = AppConfig(
         language_mode=language_hint,
-        model_size=os.getenv("SPEAKSCRIBE_EVAL_MODEL", "small"),
+        model_size=evaluation_model_size(),
         performance_mode=PerformanceMode.ACCURATE,
         script_mode=script_mode,
     )
@@ -575,7 +580,7 @@ def main(argv=None) -> int:
                 component="TEST", test_id=case["id"])
             log(logger, logging.DEBUG,
                 f"audio={case['audio']} expected_language={case['language']} "
-                f"model={os.getenv('SPEAKSCRIBE_EVAL_MODEL', 'small')} retries={retries}",
+                f"model={evaluation_model_size()} retries={retries}",
                 component="ASR", test_id=case["id"])
             try:
                 result = evaluate_case_with_retries(case, root, provider, retries)

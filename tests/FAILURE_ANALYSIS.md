@@ -51,6 +51,14 @@ list. Per-case latency was not supplied, so no latency improvement is claimed.
    log-probability, or compression gates. A failed final now receives one prompt-free,
    hotword-free recovery decode with relaxed rejection gates. Corrupt/hallucinated text
    still passes through the existing low-quality rejection checks.
+8. **Model capacity did not match the accuracy profile.** The evaluator selected
+   `PerformanceMode.ACCURATE` but still defaulted to the `small` model, while the GUI
+   defaulted to `base`. The same 15 acoustically difficult Hindi/Hinglish cases remained
+   below threshold after prompt/script fixes, implicating multilingual model capacity
+   rather than another deterministic text rewrite. Production now defaults to `small`,
+   and the accuracy suite defaults to multilingual `medium`; both remain explicitly
+   overrideable. This trades additional inference time and memory for recognition
+   quality, which the next full run must quantify.
 
 ## Retest requirements
 

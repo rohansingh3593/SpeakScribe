@@ -86,9 +86,10 @@ execution time, and report locations. The ETA becomes meaningful after several c
 runtime depends on audio length and hardware, and CPU inference can take substantially
 longer than CUDA inference.
 
-The evaluator defaults to the multilingual `small` model and accurate decoding. Set
-`SPEAKSCRIBE_EVAL_MODEL=medium` for a slower accuracy-focused run or `base` for a faster
-diagnostic run. Generated WAV metadata is versioned; audio made by an older generator
+The evaluator defaults to the multilingual `medium` model and accurate decoding because
+the smaller models produced broad Hindi/Hinglish failures. Set
+`SPEAKSCRIBE_EVAL_MODEL=small` for a faster diagnostic run when reduced multilingual
+accuracy is acceptable. Generated WAV metadata is versioned; audio made by an older generator
 is rebuilt automatically so stale English-voice Hindi files are not silently reused.
 
 Every case below 60% is automatically run one additional time for diagnostic evidence.

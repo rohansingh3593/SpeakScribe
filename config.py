@@ -63,7 +63,9 @@ class AppConfig:
     max_audio_queue: int = 100
     max_asr_queue: int = 1
     context_sentences: int = 2
-    model_size: str = "base"
+    # `small` is the minimum production default with reliable multilingual
+    # capacity; `base` caused broad Hindi/Hinglish degradation in real runs.
+    model_size: str = "small"
     device: str = "auto"
     compute_type: str = "auto"
     performance_mode: PerformanceMode = PerformanceMode.BALANCED

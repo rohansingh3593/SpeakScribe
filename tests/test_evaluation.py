@@ -1,8 +1,9 @@
 from types import SimpleNamespace
 
+from config import AppConfig
 from evaluation_runner import (
     _root_cause, compare_transcripts, evaluate_case_with_retries, evaluation_error_result,
-    evaluation_language_settings, format_duration,
+    evaluation_language_settings, evaluation_model_size, format_duration,
     normalize_transcript, regression_metrics, status_for_similarity,
 )
 
@@ -47,6 +48,20 @@ def test_evaluation_rejects_unknown_language_metadata():
     import pytest
     with pytest.raises(ValueError, match="Unsupported evaluation language"):
         evaluation_language_settings("French")
+
+
+def test_evaluation_uses_accuracy_capable_multilingual_model_by_default(monkeypatch):
+    monkeypatch.delenv("SPEAKSCRIBE_EVAL_MODEL", raising=False)
+    assert evaluation_model_size() == "medium"
+
+
+def test_evaluation_model_can_be_explicitly_overridden(monkeypatch):
+    monkeypatch.setenv("SPEAKSCRIBE_EVAL_MODEL", "small")
+    assert evaluation_model_size() == "small"
+
+
+def test_application_default_retains_multilingual_capacity():
+    assert AppConfig().model_size == "small"
 
 
 def test_format_duration_is_readable_and_stable():
