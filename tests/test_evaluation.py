@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
 from evaluation_runner import (
-    compare_transcripts, evaluate_case_with_retries, format_duration,
-    normalize_transcript, status_for_similarity,
+    compare_transcripts, evaluate_case_with_retries, evaluation_error_result, format_duration,
+    normalize_transcript, regression_metrics, status_for_similarity,
 )
 
 
@@ -63,3 +63,32 @@ def test_retry_limit_prevents_unbounded_failed_runs():
 
     assert result.attempts == 3
     assert len(calls) == 3
+
+
+def test_accuracy_gain_does_not_hide_latency_regression():
+    current = SimpleNamespace(
+        similarity=90.0, wer=0.1, final_transcript_latency=3.0, memory_mb=500.0,
+    )
+    previous = {
+        "similarity": 80.0, "wer": 0.2, "final_transcript_latency": 1.0,
+        "memory_mb": 450.0,
+    }
+
+    metrics = regression_metrics(current, previous)
+
+    assert metrics["accuracy_delta"] == 10.0
+    assert metrics["latency_delta"] == 2.0
+    assert metrics["regression"] is True
+
+
+def test_case_crash_is_preserved_as_structured_result():
+    case = {
+        "id": "CRASH-01", "audio": "broken.wav", "language": "Hindi",
+        "expected": "परीक्षण", "scenario": "reliability", "difficulty": "hard",
+    }
+
+    result = evaluation_error_result(case, "CRASH", RuntimeError("decoder stopped"))
+
+    assert result.status == "CRASH"
+    assert result.quality_flags == ["CRASH"]
+    assert "decoder stopped" in result.actual

@@ -80,6 +80,8 @@ class EvaluationResult:
     best_retry_similarity: float | None
     best_retry_status: str | None
     quality_flags: list[str]
+    cpu_percent: float
+    memory_mb: float
 
 
 def normalize_transcript(text: str) -> str:
@@ -209,6 +211,7 @@ def _root_cause(case: dict, result: EvaluationResult) -> tuple[str, str]:
 def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
     from audio_pipeline import ASRJob
     from config import AppConfig, PerformanceMode
+    from psutil import Process
 
     path = root / case["audio"]
     # Forcing all code-switched speech through Hindi decoding drops English words.
@@ -221,6 +224,8 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
         script_mode="devanagari" if case["language"] == "Hindi" else "original",
     )
     audio = load_wav(path, config.sample_rate)
+    process = Process()
+    process.cpu_percent(None)
     started = time.monotonic()
     partials: list[str] = []
     first_partial_latency = None
@@ -282,6 +287,8 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
         dropped_chunks=0, root_cause="", recommended_fix="", possible_problem="",
         attempts=1, initial_similarity=similarity, retry_improvement=0.0,
         best_retry_similarity=None, best_retry_status=None, quality_flags=[],
+        cpu_percent=round(process.cpu_percent(None), 2),
+        memory_mb=round(process.memory_info().rss / 1024 ** 2, 2),
     )
     if not actual.strip():
         result.quality_flags.append("NO_TRANSCRIPTION")
@@ -321,6 +328,45 @@ def evaluate_case_with_retries(case: dict, root: Path, provider, retries: int = 
     return primary
 
 
+def regression_metrics(current, previous: dict) -> dict[str, float | bool]:
+    """Compare accuracy and performance so one improvement cannot hide another regression."""
+    accuracy_delta = current.similarity - float(previous.get("similarity", 0.0))
+    wer_delta = current.wer - float(previous.get("wer", 0.0))
+    latency_delta = (current.final_transcript_latency -
+                     float(previous.get("final_transcript_latency", 0.0)))
+    memory_delta = float(getattr(current, "memory_mb", 0.0)) - float(previous.get("memory_mb", 0.0))
+    regression = accuracy_delta < 0 or wer_delta > 0 or latency_delta > 0.5 or memory_delta > 100
+    return {
+        "accuracy_delta": round(accuracy_delta, 2),
+        "wer_delta": round(wer_delta, 4),
+        "latency_delta": round(latency_delta, 3),
+        "memory_delta": round(memory_delta, 2),
+        "regression": regression,
+    }
+
+
+def evaluation_error_result(case: dict, status: str, error: Exception) -> EvaluationResult:
+    """Represent a per-case crash/timeout without aborting or hiding the suite."""
+    return EvaluationResult(
+        case_id=case["id"], audio=case["audio"], language=case["language"],
+        audio_source=case.get("audio_source", "unknown"),
+        scenario=case.get("scenario", "unspecified"),
+        difficulty=case.get("difficulty", "unspecified"), expected=case["expected"],
+        actual=f"{type(error).__name__}: {error}", detected_language="unknown",
+        similarity=0.0, wer=1.0, status=status, duration_seconds=0.0,
+        inference_seconds=0.0, real_time_factor=0.0, missing_words=[], extra_words=[],
+        substitutions=[], duplicated_words=[], technical_term_problems=[],
+        technical_term_accuracy=0.0, number_accuracy=0.0,
+        punctuation_difference=False, total_processing_seconds=0.0,
+        first_partial_latency=None, final_transcript_latency=0.0, partial_updates=0,
+        duplicate_partials=0, dropped_chunks=0, root_cause=status,
+        recommended_fix="Inspect the exception and preserve this case in regression testing.",
+        possible_problem=str(error), attempts=1, initial_similarity=0.0,
+        retry_improvement=0.0, best_retry_similarity=None, best_retry_status=None,
+        quality_flags=[status], cpu_percent=0.0, memory_mb=0.0,
+    )
+
+
 def render_markdown(results: list[EvaluationResult], missing: list[str],
                     baseline: dict[str, dict] | None = None) -> str:
     counts = defaultdict(int)
@@ -339,7 +385,8 @@ def render_markdown(results: list[EvaluationResult], missing: list[str],
              f"- Executed: {len(results)}", f"- Missing audio: {len(missing)}",
              f"- Excellent: {counts['EXCELLENT']}", f"- Passed: {counts['PASS']}",
              f"- Warning: {counts['WARNING']}",
-             f"- Failed: {counts['FAIL']}", ""]
+             f"- Failed: {counts['FAIL']}", f"- Crashed: {counts['CRASH']}",
+             f"- Timed out: {counts['TIMEOUT']}", ""]
     if results:
         accepted = counts["EXCELLENT"] + counts["PASS"] + counts["WARNING"]
         lines += [f"- Overall pass rate: {100 * accepted / len(results):.1f}%",
@@ -385,6 +432,7 @@ def render_markdown(results: list[EvaluationResult], missing: list[str],
                          reverse=True)[:10]
         causes = Counter(item.root_cause for item in results
                          if item.status in {"WARNING", "FAIL"})
+        quality_findings = Counter(flag for item in results for flag in item.quality_flags)
         technical = Counter(term for item in results for term in item.technical_term_problems)
         language_failures = [item for item in results
                              if item.detected_language.casefold() != item.language.casefold()]
@@ -395,21 +443,28 @@ def render_markdown(results: list[EvaluationResult], missing: list[str],
             f"RTF {item.real_time_factor:.2f}" for item in slowest]
         lines += ["", "## Most common root causes", ""] + [
             f"- {cause}: {count}" for cause, count in causes.most_common()]
+        lines += ["", "## Diagnostic quality findings", ""] + [
+            f"- {flag}: {count}" for flag, count in quality_findings.most_common()]
         lines += ["", "## Top technical-term errors", ""] + [
             f"- {term}: {count}" for term, count in technical.most_common(10)]
         lines += ["", "## Language-detection failures", ""] + [
             f"- {item.case_id}: expected {item.language}, detected {item.detected_language}"
             for item in language_failures]
         if baseline:
-            comparisons = [(item, item.similarity - float(baseline[item.case_id]["similarity"]))
+            comparisons = [(item, regression_metrics(item, baseline[item.case_id]))
                            for item in results if item.case_id in baseline]
             lines += ["", "## Before vs after regression comparison", ""]
-            for item, delta in sorted(comparisons, key=lambda pair: pair[1]):
+            for item, metrics in sorted(
+                    comparisons, key=lambda pair: pair[1]["accuracy_delta"]):
                 before = float(baseline[item.case_id]["similarity"])
                 lines.append(f"- {item.case_id}: {before:.1f}% -> {item.similarity:.1f}% "
-                             f"({delta:+.1f} points)")
-    lines += ["", "| Test | Language | Source | Similarity | WER | Attempts | Best retry | Retry Δ | Flags | Inference | RTF | Status |",
-              "|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|---|"]
+                             f"(accuracy {metrics['accuracy_delta']:+.1f}, "
+                             f"WER {metrics['wer_delta']:+.3f}, "
+                             f"latency {metrics['latency_delta']:+.2f}s, "
+                             f"memory {metrics['memory_delta']:+.1f} MB, "
+                             f"regression={'YES' if metrics['regression'] else 'no'})")
+    lines += ["", "| Test | Language | Source | Similarity | WER | Attempts | Best retry | Retry Δ | Flags | Inference | RTF | CPU | RAM | Status |",
+              "|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---|"]
     for item in results:
         lines.append(f"| {item.audio} | {item.language} | {item.audio_source.title()} | "
                      f"{item.similarity:.1f}% | "
@@ -417,7 +472,8 @@ def render_markdown(results: list[EvaluationResult], missing: list[str],
                      f"{item.best_retry_similarity if item.best_retry_similarity is not None else '-'} | "
                      f"{item.retry_improvement:+.1f} | {', '.join(item.quality_flags) or '-'} | "
                      f"{item.inference_seconds:.2f}s | "
-                     f"{item.real_time_factor:.2f} | {item.status} |")
+                     f"{item.real_time_factor:.2f} | {item.cpu_percent:.1f}% | "
+                     f"{item.memory_mb:.1f} MB | {item.status} |")
     for item in results:
         if item.status in {"EXCELLENT", "PASS"}:
             continue
@@ -474,7 +530,13 @@ def main() -> int:
         for index, case in enumerate(runnable, 1):
             case_started = time.perf_counter()
             retries = max(0, int(os.getenv("SPEAKSCRIBE_FAILED_RETRIES", "1")))
-            results.append(evaluate_case_with_retries(case, root, provider, retries))
+            try:
+                result = evaluate_case_with_retries(case, root, provider, retries)
+            except TimeoutError as exc:
+                result = evaluation_error_result(case, "TIMEOUT", exc)
+            except Exception as exc:
+                result = evaluation_error_result(case, "CRASH", exc)
+            results.append(result)
             elapsed = time.perf_counter() - evaluation_started
             eta = elapsed / index * (total - index)
             print(
@@ -516,7 +578,8 @@ def main() -> int:
         return 3
     if missing:
         return 2
-    return 1 if any(result.status == "FAIL" for result in results) else 0
+    return 1 if any(result.status in {"FAIL", "CRASH", "TIMEOUT"}
+                    for result in results) else 0
 
 
 if __name__ == "__main__":

@@ -1,5 +1,9 @@
 # 120-case speech validation suite
 
+The binding diagnostic principles are documented in
+[`TESTING_PHILOSOPHY.md`](TESTING_PHILOSOPHY.md). Tests intentionally seek breaking
+points; expected transcripts and thresholds must not be changed to chase a pass rate.
+
 `expected/transcripts.json` contains 30 scenarios with four genuinely different
 variations each. The tracked `speech_cases/01_normal` through
 `speech_cases/30_combined` directories are the stable destinations for recordings.
