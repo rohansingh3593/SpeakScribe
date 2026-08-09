@@ -41,6 +41,16 @@ list. Per-case latency was not supplied, so no latency improvement is claimed.
    normalization is retained, with a broader general developer vocabulary protected
    from conversion. Cleanup also retains deliberate double words while bounding runs
    of three or more.
+6. **Mixed-language hotword over-bias.** The latest supplied run added failures across
+   Hinglish variations (`*-03`/`*-04`), showing that an unconditional Latin vocabulary
+   list can dominate acoustically ambiguous auto-language decoding too. Global hotwords
+   are now limited to pinned English. Hinglish remains acoustically driven until a
+   confidence-aware vocabulary selector is available.
+7. **One-pass segment rejection.** Long continuous and repeated-word cases returned no
+   transcription after otherwise useful segments crossed conservative no-speech,
+   log-probability, or compression gates. A failed final now receives one prompt-free,
+   hotword-free recovery decode with relaxed rejection gates. Corrupt/hallucinated text
+   still passes through the existing low-quality rejection checks.
 
 ## Retest requirements
 

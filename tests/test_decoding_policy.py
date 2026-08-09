@@ -1,4 +1,4 @@
-from decoding_policy import hotwords, initial_prompt
+from decoding_policy import hotwords, initial_prompt, retry_thresholds
 
 
 VOCABULARY = ("PostgreSQL", "MongoDB", "Jenkins", "CPU", "RAM")
@@ -44,11 +44,25 @@ def test_final_hindi_rejects_latin_hotwords_to_preserve_devanagari_output():
     assert hotwords(final=True, language_mode="hi", vocabulary=VOCABULARY) is None
 
 
-def test_auto_hinglish_uses_dedicated_hotwords_without_an_initial_prompt():
+def test_auto_hinglish_avoids_unconditional_latin_hotword_bias():
     assert prompt(language_mode="auto") is None
-    assert hotwords(final=True, language_mode="auto", vocabulary=VOCABULARY) == (
+    assert hotwords(final=True, language_mode="auto", vocabulary=VOCABULARY) is None
+
+
+def test_english_final_can_use_dedicated_hotwords():
+    assert hotwords(final=True, language_mode="en", vocabulary=VOCABULARY) == (
         "PostgreSQL, MongoDB, Jenkins, CPU, RAM")
 
 
 def test_partials_do_not_pay_for_hotword_bias():
     assert hotwords(final=False, language_mode="auto", vocabulary=VOCABULARY) is None
+
+
+def test_recovery_thresholds_only_relax_rejection_gates():
+    assert retry_thresholds(no_speech=.85, log_probability=-2.0,
+                            compression_ratio=2.4) == (.95, -3.0, 4.0)
+
+
+def test_already_loose_recovery_thresholds_are_never_tightened():
+    assert retry_thresholds(no_speech=.98, log_probability=-4.0,
+                            compression_ratio=5.0) == (.98, -4.0, 5.0)

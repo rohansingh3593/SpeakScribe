@@ -15,7 +15,7 @@ from psutil import Process
 
 from audio_pipeline import ASRJob, audio_statistics, prepare_audio_for_asr
 from config import AppConfig
-from decoding_policy import hotwords, initial_prompt
+from decoding_policy import hotwords, initial_prompt, retry_thresholds
 from logger import log_exception, log_print
 from text_processing import (
     apply_script_mode, clean_text, detect_language, is_low_quality_text,
@@ -103,16 +103,26 @@ class WhisperEngine:
             _write_debug_wav(raw_path, job.audio, self.config.sample_rate)
             _write_debug_wav(prepared_path, prepared, self.config.sample_rate)
             log_print(f"[ASR-INPUT] saved debug audio: {raw_path}, {prepared_path}")
-        def decode(initial_prompt):
+        def decode(initial_prompt, word_bias, *, relaxed=False):
+            no_speech_threshold = self.config.no_speech_threshold
+            log_probability_threshold = self.config.min_avg_logprob
+            compression_threshold = self.config.max_compression_ratio
+            if relaxed:
+                (no_speech_threshold, log_probability_threshold,
+                 compression_threshold) = retry_thresholds(
+                    no_speech=no_speech_threshold,
+                    log_probability=log_probability_threshold,
+                    compression_ratio=compression_threshold,
+                )
             segments, decode_info = self.model.transcribe(
                 prepared, language=language, task="transcribe",
                 beam_size=beam_size, best_of=best_of,
                 temperature=profile.temperature, initial_prompt=initial_prompt,
-                hotwords=vocabulary_bias,
+                hotwords=word_bias,
                 condition_on_previous_text=False, vad_filter=self.config.vad_filter,
-                word_timestamps=False, no_speech_threshold=self.config.no_speech_threshold,
-                log_prob_threshold=self.config.min_avg_logprob,
-                compression_ratio_threshold=self.config.max_compression_ratio,
+                word_timestamps=False, no_speech_threshold=no_speech_threshold,
+                log_prob_threshold=log_probability_threshold,
+                compression_ratio_threshold=compression_threshold,
             )
             accepted = []
             segment_count = 0
@@ -125,9 +135,9 @@ class WhisperEngine:
                     f"avg_logprob={segment.avg_logprob:.3f} "
                     f"compression={segment.compression_ratio:.3f} raw={segment.text!r}"
                 )
-                if (segment.no_speech_prob <= self.config.no_speech_threshold and
-                        segment.avg_logprob >= self.config.min_avg_logprob and
-                        segment.compression_ratio <= self.config.max_compression_ratio):
+                if (segment.no_speech_prob <= no_speech_threshold and
+                        segment.avg_logprob >= log_probability_threshold and
+                        segment.compression_ratio <= compression_threshold):
                     accepted.append(segment.text)
                 else:
                     log_print(
@@ -143,7 +153,7 @@ class WhisperEngine:
             log_print(f"[ASR-TEXT] accepted={len(accepted)}/{segment_count} cleaned={decoded!r}")
             return decoded, decode_info
 
-        text, info = decode(prompt)
+        text, info = decode(prompt, vocabulary_bias)
         if (len(job.audio) / self.config.sample_rate < 2.0 and
                 text.casefold() in KNOWN_SHORT_HALLUCINATIONS):
             log_print(f"[ASR] rejected known short-audio hallucination: {text!r}")
@@ -151,9 +161,9 @@ class WhisperEngine:
         if is_low_quality_text(text):
             log_print(f"[ASR] rejected corrupt/repetitive transcript: {text!r}")
             text = ""
-        if not text and prompt:
-            log_print("[ASR] prompted final was unusable; retrying without prompt")
-            text, info = decode(None)
+        if not text and job.final:
+            log_print("[ASR] final was unusable; retrying prompt-free with recovery thresholds")
+            text, info = decode(None, None, relaxed=True)
             if (len(job.audio) / self.config.sample_rate < 2.0 and
                     text.casefold() in KNOWN_SHORT_HALLUCINATIONS):
                 log_print(f"[ASR] rejected known fallback hallucination: {text!r}")

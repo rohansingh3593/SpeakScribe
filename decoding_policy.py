@@ -26,10 +26,16 @@ def hotwords(*, final: bool, language_mode: str,
              vocabulary: tuple[str, ...]) -> str | None:
     """Return safe vocabulary bias through Whisper's hotword channel.
 
-    Latin hotwords can flip a Hindi-pinned decode into romanized output even when
-    the acoustics are entirely Devanagari. Preserve them for English and automatic
-    code-switching modes, but never bias a pinned Hindi decode with Latin tokens.
+    Latin hotwords can dominate both Hindi-pinned and acoustically ambiguous
+    Hinglish audio. Restrict global vocabulary bias to English; mixed-language
+    vocabulary needs confidence-aware biasing rather than an unconditional list.
     """
-    if not final or language_mode == "hi" or not vocabulary:
+    if not final or language_mode != "en" or not vocabulary:
         return None
     return ", ".join(vocabulary)
+
+
+def retry_thresholds(*, no_speech: float, log_probability: float,
+                     compression_ratio: float) -> tuple[float, float, float]:
+    """Relax rejection gates for one prompt-free final recovery attempt."""
+    return max(no_speech, 0.95), min(log_probability, -3.0), max(compression_ratio, 4.0)
