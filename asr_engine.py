@@ -4,6 +4,7 @@ from collections import deque
 from queue import Empty, Queue
 from threading import Event, Lock
 from pathlib import Path
+import logging
 import time
 import wave
 
@@ -56,7 +57,8 @@ class WhisperEngine:
                 return model
             except Exception as exc:
                 last_error = exc
-                log_print(f"Model initialization failed on {device}: {exc}")
+                log_print(f"Model initialization failed on {device}; trying fallback: {exc}",
+                          logging.WARNING)
         raise RuntimeError(f"Could not load Whisper model: {last_error}")
 
     def transcribe(self, job: ASRJob, context: str) -> tuple[str, str]:

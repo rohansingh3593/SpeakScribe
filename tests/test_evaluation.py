@@ -21,6 +21,15 @@ def test_similarity_reports_word_errors_and_warning_status():
     assert status_for_similarity(similarity) == "PASS"
 
 
+def test_devanagari_accent_spelling_is_not_treated_as_total_word_loss():
+    expected = "अलग क्षेत्रीय उच्चारण में भी यह पूरा वाक्य सही पहचाना जाना चाहिए।"
+    actual = "अलक शेत्रिय उच्चारन में भी यह पुरा वाख्य सही पहचाना जाना जाहें।"
+    similarity, wer, _ = compare_transcripts(expected, actual)
+    assert wer == 0.5
+    assert similarity >= 60
+    assert status_for_similarity(similarity) == "WARNING"
+
+
 def test_status_boundaries():
     assert status_for_similarity(80) == "PASS"
     assert status_for_similarity(60) == "WARNING"

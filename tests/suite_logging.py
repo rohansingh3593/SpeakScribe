@@ -65,6 +65,11 @@ def configure_logging(*, debug: bool = False, quiet: bool = False,
         if failure_only:
             handler.addFilter(_FailuresOnly())
         logger.addHandler(handler)
+    # Route the existing ASR/audio-pipeline diagnostics to the same complete log.
+    # Their legacy log_print calls default to DEBUG and therefore stay off a normal
+    # console while becoming visible with --debug.
+    from logger import configure_runtime_logging
+    configure_runtime_logging(console_level=console_level, output_path=paths.main)
     return logger, paths
 
 
@@ -77,6 +82,8 @@ def log(logger: logging.Logger, level: int, message: str, *, component="SUITE",
 def finalize_latest(paths: LogPaths) -> None:
     """Publish latest.log only after handlers have flushed the completed run."""
     for handler in logging.getLogger(LOGGER_NAME).handlers:
+        handler.flush()
+    for handler in logging.getLogger("speakscribe.runtime").handlers:
         handler.flush()
     shutil.copyfile(paths.main, paths.latest)
 

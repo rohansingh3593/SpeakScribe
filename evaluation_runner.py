@@ -141,7 +141,16 @@ def compare_transcripts(expected: str, actual: str) -> tuple[float, float, EditD
     wer = edits / max(1, len(reference))
     word_accuracy = 1.0 - min(1.0, wer)
     sequence = SequenceMatcher(None, reference, hypothesis, autojunk=False).ratio()
-    similarity = 100.0 * (0.7 * word_accuracy + 0.3 * sequence)
+    # WER remains the strict, auditable metric. Character similarity separately
+    # recognizes close inflection/pronunciation spellings (especially Devanagari)
+    # instead of classifying every near-spelled word as wholly absent.
+    if re.search(r"[\u0900-\u097f]", expected + actual):
+        character_similarity = SequenceMatcher(
+            None, " ".join(reference), " ".join(hypothesis), autojunk=False).ratio()
+        similarity = 100.0 * (0.5 * word_accuracy + 0.2 * sequence +
+                              0.3 * character_similarity)
+    else:
+        similarity = 100.0 * (0.7 * word_accuracy + 0.3 * sequence)
     return round(similarity, 2), round(wer, 4), details
 
 
@@ -207,7 +216,7 @@ def _root_cause(case: dict, result: EvaluationResult) -> tuple[str, str]:
         return "VAD", "Review pre-roll, hangover, and voiced-duration handling across the related pause cases."
     if result.duplicate_partials:
         return "Partial-result merging", "Improve stable-prefix merging without hardcoding this transcript."
-    if result.real_time_factor > 1:
+    if result.real_time_factor > 1 and result.status != "FAIL":
         return "Performance/latency", "Reduce redundant partial inference or select a generally faster decode profile."
     if result.punctuation_difference and result.similarity >= 80:
         return "Punctuation", "Adjust conservative final punctuation only; preserve recognized words."
