@@ -40,6 +40,20 @@ The one-command generation → validation → ASR → report workflow is:
 python tests/run_speech_suite.py
 ```
 
+The default console is a compact test-runner view: each case shows its language,
+scenario, accuracy, WER, duration, moving-average ETA, and current PASS/WARNING/FAIL
+totals. Technical audio, model, transcript, resource, and timing diagnostics are kept
+in the timestamped file under `logs/` without flooding the terminal. Use `--debug` to
+also show those diagnostics on the console, `--quiet` for errors plus the final summary,
+or `--log-level LEVEL` for an explicit standard Python logging level. Every run writes
+`logs/latest.log`, a timestamped complete log, and a warning/failure-only log beneath
+`logs/errors/`.
+
+ETA remains `calculating...` until three cases have completed, then uses the most recent
+ten case durations so that an unusually fast or slow first case does not dominate it.
+Tests over the configurable five-second default are marked `SLOW` but retain their
+accuracy status. Ctrl+C saves the collected results as an `interrupted_report_*` set.
+
 Recommended sequence to run all 120 cases, write reports, and then remove only
 synthetic audio while retaining human recordings:
 

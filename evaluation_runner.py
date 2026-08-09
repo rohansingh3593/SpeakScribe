@@ -9,12 +9,18 @@ from datetime import datetime
 from difflib import SequenceMatcher
 import json
 import csv
+import logging
 import os
 from pathlib import Path
 import re
 import sys
 import time
 import wave
+
+from tests.suite_logging import (
+    SLOW_TEST_WARNING_SECONDS, ProgressTracker, aggregate_results,
+    configure_logging, finalize_latest, format_duration as suite_duration, log,
+)
 
 
 TECHNICAL_TERMS = {
@@ -493,7 +499,7 @@ def render_markdown(results: list[EvaluationResult], missing: list[str],
     return "\n".join(lines) + "\n"
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", default="tests/expected/transcripts.json")
     parser.add_argument("--report", default="tests/results/latest_report.md")
@@ -502,7 +508,16 @@ def main() -> int:
     parser.add_argument("--baseline", help="Previous JSON report for regression comparison")
     parser.add_argument("--no-generate", action="store_true",
                         help="Do not synthesize missing WAV files before evaluation")
-    args = parser.parse_args()
+    parser.add_argument("--debug", action="store_true", help="Show technical diagnostics")
+    parser.add_argument("--quiet", action="store_true", help="Show errors and final summary only")
+    parser.add_argument("--log-level", choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
+                        help="Explicit console logging level")
+    parser.add_argument("--slow-test-seconds", type=float,
+                        default=SLOW_TEST_WARNING_SECONDS)
+    args = parser.parse_args(argv)
+    logger, log_paths = configure_logging(debug=args.debug, quiet=args.quiet,
+                                          log_level=args.log_level)
+    run_started_at = datetime.now().astimezone()
     manifest_path = Path(args.manifest).resolve()
     cases = json.loads(manifest_path.read_text(encoding="utf-8"))["cases"]
     root = Path.cwd()
@@ -522,30 +537,73 @@ def main() -> int:
         previous = json.loads(Path(args.baseline).read_text(encoding="utf-8"))
         baseline = {item["case_id"]: item for item in previous}
     results = []
+    interrupted = False
     if runnable:
         from asr_engine import WhisperModelProvider
         provider = WhisperModelProvider()
-        evaluation_started = time.perf_counter()
         total = len(runnable)
+        tracker = ProgressTracker(total)
+        language_counts = Counter(case["language"] for case in runnable)
+        source_counts = Counter(case.get("audio_source", "human") for case in runnable)
+        log(logger, logging.INFO, "=" * 60 + "\n Speech Recognition Validation Suite\n" + "=" * 60)
+        log(logger, logging.INFO, f"Total Tests      : {total}")
+        for language in ("English", "Hindi", "Hinglish"):
+            log(logger, logging.INFO, f"{language:<17}: {language_counts[language]}")
+        log(logger, logging.INFO, f"Audio Available  : {source_counts['human']}")
+        log(logger, logging.INFO, f"Audio Generated  : {source_counts['synthetic']}")
+        log(logger, logging.INFO, "Estimated execution time: calculating...\n")
         for index, case in enumerate(runnable, 1):
             case_started = time.perf_counter()
             retries = max(0, int(os.getenv("SPEAKSCRIBE_FAILED_RETRIES", "1")))
+            log(logger, logging.INFO,
+                f"[{index:03d}/{total:03d}] Running {case['id']} | "
+                f"{case['language']} | {case.get('scenario', 'unspecified').replace('_', ' ').title()}",
+                component="TEST", test_id=case["id"])
+            log(logger, logging.DEBUG,
+                f"audio={case['audio']} expected_language={case['language']} "
+                f"model={os.getenv('SPEAKSCRIBE_EVAL_MODEL', 'small')} retries={retries}",
+                component="ASR", test_id=case["id"])
             try:
                 result = evaluate_case_with_retries(case, root, provider, retries)
+            except KeyboardInterrupt:
+                interrupted = True
+                log(logger, logging.WARNING, "Test run interrupted; saving partial results.")
+                break
             except TimeoutError as exc:
                 result = evaluation_error_result(case, "TIMEOUT", exc)
+                log(logger, logging.ERROR, f"Test timeout: {exc}", component="ASR",
+                    test_id=case["id"], test_status="TIMEOUT")
             except Exception as exc:
                 result = evaluation_error_result(case, "CRASH", exc)
+                log(logger, logging.ERROR, f"ASR exception: {type(exc).__name__}: {exc}",
+                    component="ASR", test_id=case["id"], test_status="CRASH")
             results.append(result)
-            elapsed = time.perf_counter() - evaluation_started
-            eta = elapsed / index * (total - index)
-            print(
-                f"[ASR {index:03d}/{total:03d}] {case['id']} complete | "
-                f"case={format_duration(time.perf_counter() - case_started)} "
-                f"elapsed={format_duration(elapsed)} ETA={format_duration(eta)} "
-                f"status={results[-1].status} attempts={results[-1].attempts}",
-                file=sys.stderr, flush=True,
-            )
+            case_duration = time.perf_counter() - case_started
+            tracker.record(result.status, case_duration)
+            slow = case_duration >= args.slow_test_seconds
+            level = (logging.ERROR if result.status in {"FAIL", "CRASH", "TIMEOUT"}
+                     else logging.WARNING if result.status == "WARNING" or slow
+                     else logging.INFO)
+            suffix = " | ⚠ SLOW" if slow else ""
+            log(logger, level,
+                f"[{index:03d}/{total:03d}] {result.status} | {result.similarity:.1f}% | "
+                f"WER {result.wer:.2f} | {case_duration:.2f}s{suffix}",
+                component="TEST", test_id=case["id"], test_status=result.status)
+            log(logger, logging.DEBUG,
+                f"raw={result.actual!r} normalized={normalize_transcript(result.actual)!r} "
+                f"inference={result.inference_seconds:.3f}s total={case_duration:.3f}s "
+                f"audio_duration={result.duration_seconds:.3f}s rtf={result.real_time_factor:.3f} "
+                f"missing={len(result.missing_words)} extra={len(result.extra_words)} "
+                f"substitutions={len(result.substitutions)} cpu={result.cpu_percent:.1f}% "
+                f"memory={result.memory_mb:.1f}MB detected={result.detected_language}",
+                component="ASR", test_id=case["id"])
+            log(logger, logging.INFO, tracker.progress_message() + "\n")
+        if interrupted:
+            stamp = datetime.now().astimezone().strftime("%Y-%m-%d_%H%M%S")
+            partial = Path("tests/results") / f"interrupted_report_{stamp}"
+            args.report, args.json_report, args.csv_report = (
+                str(partial.with_suffix(".md")), str(partial.with_suffix(".json")),
+                str(partial.with_suffix(".csv")))
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     report = render_markdown(results, missing, baseline)
     if generation_errors:
@@ -568,12 +626,60 @@ def main() -> int:
                 if isinstance(value, list):
                     row[key] = " | ".join(value)
             writer.writerow(row)
-    print(report)
-    print(
-        f"Evaluation completed at {datetime.now().astimezone().isoformat(timespec='seconds')} | "
-        f"executed={len(results)}/{len(cases)}",
-        file=sys.stderr, flush=True,
-    )
+    counts = Counter(result.status for result in results)
+    duration = tracker.elapsed if runnable else 0.0
+    summary = ["=" * 60, " TEST RUN INTERRUPTED" if interrupted else " TEST RUN COMPLETE",
+               "=" * 60, f"Total Tests : {len(cases)}",
+               f"Completed   : {len(results)} / {len(cases)}",
+               f"Remaining   : {len(cases) - len(results)}",
+               f"Excellent   : {counts['EXCELLENT']}", f"Pass        : {counts['PASS']}",
+               f"Warning     : {counts['WARNING']}", f"Fail        : {counts['FAIL']}",
+               f"Error       : {counts['CRASH'] + counts['TIMEOUT']}",
+               f"Total Time  : {suite_duration(duration)}",
+               f"Average/Test: {duration / len(results):.2f}s" if results else "Average/Test: n/a"]
+    languages = {}
+    if results:
+        fastest = min(results, key=lambda item: item.total_processing_seconds)
+        slowest = max(results, key=lambda item: item.total_processing_seconds)
+        summary += [f"Fastest Test: {fastest.case_id} ({fastest.total_processing_seconds:.2f}s)",
+                    f"Slowest Test: {slowest.case_id} ({slowest.total_processing_seconds:.2f}s)"]
+        languages, scenarios = aggregate_results(results)
+        for language in ("English", "Hindi", "Hinglish"):
+            if language in languages:
+                item = languages[language]
+                summary.append(f"{language}: {item['tests']} tests | {item['average_time']:.2f}s avg | "
+                               f"{item['accuracy']:.1f}% accuracy")
+        summary.append("Top 5 Slowest Categories:")
+        summary.extend(f"  {number}. {name.replace('_', ' ').title()}: {average:.2f}s avg"
+                       for number, (name, average) in enumerate(scenarios, 1))
+    summary += [f"Report Path : {args.report}", f"Log Path    : {log_paths.main}"]
+    # ERROR ensures quiet mode still receives the explicitly requested final summary.
+    log(logger, logging.ERROR if args.quiet else logging.INFO, "\n".join(summary))
+    failed_tests = [item.case_id for item in results
+                    if item.status in {"FAIL", "CRASH", "TIMEOUT"}]
+    high_latency = [item.case_id for item in results
+                    if item.total_processing_seconds >= args.slow_test_seconds]
+    average_wer = sum(item.wer for item in results) / len(results) if results else 0.0
+    average_asr = (sum(item.inference_seconds for item in results) / len(results)
+                   if results else 0.0)
+    log(logger, logging.DEBUG, "\n".join([
+        f"RUN ID: {log_paths.run_id}", f"START TIME: {run_started_at.isoformat()}",
+        f"END TIME: {datetime.now().astimezone().isoformat()}",
+        f"TOTAL DURATION: {suite_duration(duration)}", f"TOTAL TESTS: {len(cases)}",
+        f"COMPLETED: {len(results)}", f"SKIPPED: {len(cases) - len(results)}",
+        f"PASS: {counts['EXCELLENT'] + counts['PASS']}",
+        f"WARNING: {counts['WARNING']}", f"FAIL: {counts['FAIL']}",
+        f"ERROR: {counts['CRASH'] + counts['TIMEOUT']}",
+        f"AVERAGE WER: {average_wer:.4f}", f"AVERAGE TEST TIME: {duration / len(results):.3f}s" if results else "AVERAGE TEST TIME: n/a",
+        f"ENGLISH ACCURACY: {languages.get('English', {}).get('accuracy', 0.0):.1f}%",
+        f"HINDI ACCURACY: {languages.get('Hindi', {}).get('accuracy', 0.0):.1f}%",
+        f"HINGLISH ACCURACY: {languages.get('Hinglish', {}).get('accuracy', 0.0):.1f}%",
+        f"AVERAGE ASR TIME: {average_asr:.3f}s", f"HIGH-LATENCY TESTS: {', '.join(high_latency) or '-'}",
+        f"FAILED TESTS: {', '.join(failed_tests) or '-'}", f"REPORT PATH: {args.report}",
+        f"LOG PATH: {log_paths.main}"]), component="SUMMARY")
+    finalize_latest(log_paths)
+    if interrupted:
+        return 130
     if generation_errors:
         return 3
     if missing:

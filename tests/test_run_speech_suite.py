@@ -15,6 +15,23 @@ def test_script_help_works_without_pythonpath_configuration():
     )
     assert completed.returncode == 0
     assert "--cleanup-after" in completed.stdout
+    assert "--debug" in completed.stdout
+    assert "--quiet" in completed.stdout
+    assert "--log-level" in completed.stdout
+
+
+def test_logging_mode_is_forwarded_to_evaluator(monkeypatch):
+    commands = []
+
+    def run(command, **_kwargs):
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(run_speech_suite.subprocess, "run", run)
+    monkeypatch.setattr(run_speech_suite, "missing_asr_dependencies", lambda: [])
+    assert run_speech_suite.main(["--debug"]) == 0
+    evaluator = next(command for command in commands if "evaluation_runner.py" in command)
+    assert "--debug" in evaluator
 
 
 def test_cleanup_generated_runs_after_success(monkeypatch):
