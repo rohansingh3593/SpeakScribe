@@ -6,6 +6,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class SpeechConfig:
     language: str | None = None
+    capture_source: str = "microphone"
     sample_rate: int = 16_000
     channels: int = 1
     continuous: bool = False
@@ -25,3 +26,5 @@ class SpeechConfig:
             raise ValueError("chunk_duration must be positive")
         if self.minimum_rms < 0:
             raise ValueError("minimum_rms cannot be negative")
+        if self.capture_source not in {"microphone", "loopback"}:
+            raise ValueError("capture_source must be 'microphone' or 'loopback'")

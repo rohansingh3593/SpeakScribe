@@ -29,7 +29,8 @@ The UI-independent implementation is installable from `src/speakscribe` with
 `SpeechConfig`, `TranscriptionResult`, and library-specific exceptions. It contains no
 Tkinter or PyQt imports; the desktop and Tkinter consumers remain outside the package.
 See [SPEAKSCRIBE.md](SPEAKSCRIBE.md) and `examples/` for one-shot, continuous CLI,
-and thread-safe Tkinter usage.
+thread-safe Tkinter usage, and a complete PyQt compact recording-panel example matching
+the timer, paired controls, transcript area, action sections, and Move bar layout.
 
 ### Runtime logging and live status
 

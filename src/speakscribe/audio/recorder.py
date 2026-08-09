@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from threading import Event, Lock
 
-from speakscribe.audio.microphone import default_microphone
+from speakscribe.audio.microphone import capture_device
 from speakscribe.audio.processor import prepare_audio, rms
 from speakscribe.config import SpeechConfig
 from speakscribe.exceptions import MicrophoneError
@@ -39,7 +39,7 @@ class SoundCardRecorder(BaseAudioRecorder):
         with self._lock:
             if self._running:
                 return
-            self._device = default_microphone()
+            self._device = capture_device(self.config.capture_source)
             self._running = True
             LOGGER.info("Microphone ready: %s", getattr(self._device, "name", "default"))
 
@@ -48,8 +48,9 @@ class SoundCardRecorder(BaseAudioRecorder):
             raise MicrophoneError("Recorder has not been started")
         frames = int(self.config.sample_rate * self.config.chunk_duration)
         try:
+            channels = None if self.config.capture_source == "loopback" else self.config.channels
             with self._device.recorder(samplerate=self.config.sample_rate,
-                                       channels=self.config.channels) as stream:
+                                       channels=channels) as stream:
                 while self._running and not stop_event.is_set():
                     audio = prepare_audio(stream.record(numframes=frames))
                     level = rms(audio)

@@ -32,6 +32,15 @@ def test_tkinter_is_confined_to_external_example():
     assert "threading.Thread" in example
 
 
+def test_pyqt_recording_panel_is_external_and_consumes_public_api():
+    root = Path(__file__).resolve().parents[3]
+    example = (root / "examples/pyqt_recording_panel.py").read_text(encoding="utf-8")
+    assert "from speakscribe import" in example
+    assert "SpeechToText(self.make_config())" in example
+    assert "start_continuous(self.events.put" in example
+    assert "def _build_recording_bar" in example
+
+
 def test_existing_desktop_pipeline_consumes_shared_library_preprocessing():
     from app.audio.audio_pipeline import prepare_audio_for_asr as desktop_prepare
     from speakscribe.audio.processor import prepare_audio_for_asr as library_prepare

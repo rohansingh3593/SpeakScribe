@@ -133,5 +133,8 @@ def test_engine_can_switch_only_while_stopped():
 
 def test_configuration_validation():
     assert SpeechConfig(language="en-IN").language == "en-IN"
+    assert SpeechConfig(capture_source="loopback").capture_source == "loopback"
     with pytest.raises(ValueError):
         SpeechConfig(sample_rate=0)
+    with pytest.raises(ValueError):
+        SpeechConfig(capture_source="unknown")

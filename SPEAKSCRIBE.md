@@ -43,5 +43,7 @@ with `stop()` or `close()`. Inject a `BaseAudioRecorder` and
 The library installs a `NullHandler` only. Parent applications retain full control of
 logging through the `speakscribe` logger or `speakscribe.logging.configure_logging`.
 
-See `examples/cli_example.py`, `examples/simple_example.py`, and
-`examples/tkinter_example.py`.
+See `examples/cli_example.py`, `examples/simple_example.py`,
+`examples/tkinter_example.py`, and `examples/pyqt_recording_panel.py`. The PyQt example
+recreates the compact timer/button/transcript/move-bar panel while keeping every widget
+outside the reusable package.
