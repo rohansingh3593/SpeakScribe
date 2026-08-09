@@ -43,6 +43,11 @@ does not stop capture. The adaptive VAD also lowers both start and continuation
 thresholds for quiet microphones; detailed RMS, noise-floor, and effective-threshold
 values remain available in `debug.log` and `modules/audio.log`.
 
+The **Capture** selector defaults to **System audio (legacy)**, which preserves the
+previously working SoundCard path (`default_speaker` → matching loopback device),
+including a three-block warm-up and multichannel-to-mono downmix. Select
+**Microphone** when speech should come directly from the default physical microphone.
+
 The application continuously listens to microphone input and converts speech into text with a focus on **low latency, transcription accuracy, and Hindi/English/Hinglish support**.
 
 It is designed to handle natural code-switching between Hindi and English while preserving technical terms such as Python, SQLAlchemy, FastAPI, Jenkins, Docker, GitHub, Jira, and Pull Request.

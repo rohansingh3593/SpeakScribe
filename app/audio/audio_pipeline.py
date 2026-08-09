@@ -25,6 +25,24 @@ class ASRJob:
     speech_seconds: float | None = None
 
 
+def select_capture_device(soundcard, source: str):
+    """Resolve a physical microphone or the legacy speaker-loopback source."""
+    if source not in {"loopback", "microphone"}:
+        raise ValueError(f"Unsupported capture source: {source}")
+    if source == "loopback":
+        speaker = soundcard.default_speaker()
+        if speaker is None:
+            raise RuntimeError("No default speaker is available for loopback capture")
+        device = soundcard.get_microphone(id=str(speaker.name), include_loopback=True)
+        if device is None:
+            raise RuntimeError(f"No loopback capture device is available for {speaker.name}")
+        return device, f"speaker-loopback:{speaker.name}", None
+    device = soundcard.default_microphone()
+    if device is None:
+        raise RuntimeError("No default microphone is available")
+    return device, f"microphone:{device.name}", 1
+
+
 def prepare_audio_for_asr(audio: np.ndarray) -> np.ndarray:
     """Remove DC offset without amplifying silence or microphone noise."""
     prepared = np.asarray(audio, dtype=np.float32)
@@ -132,16 +150,31 @@ class AudioCaptureWorker:
             mediafoundation = import_module("soundcard.mediafoundation")
             soundcard_warning = getattr(
                 mediafoundation, "SoundcardRuntimeWarning", RuntimeWarning)
-            microphone = sc.default_microphone()
-            if microphone is None:
-                raise RuntimeError("No default microphone is available")
+            microphone, source_description, recorder_channels = select_capture_device(
+                sc, self.config.capture_source)
             LOGGER.info(
-                "Microphone capture opening | device=%s rate=%s channels=%s chunk_ms=%s",
-                microphone.name, self.config.capture_sample_rate, self.config.channels,
+                "Audio capture opening | source=%s device=%s rate=%s channels=%s chunk_ms=%s",
+                source_description, microphone.name, self.config.capture_sample_rate,
+                recorder_channels or "all",
                 self.config.capture_chunk_ms,
             )
             with microphone.recorder(samplerate=self.config.capture_sample_rate,
-                                     channels=self.config.channels) as recorder:
+                                     channels=recorder_channels) as recorder:
+                LOGGER.info("Audio stream warming up | blocks=%s block_ms=%s",
+                            self.config.capture_warmup_blocks,
+                            self.config.capture_warmup_ms)
+                warmup_discontinuities = 0
+                for _ in range(self.config.capture_warmup_blocks):
+                    with warnings.catch_warnings(record=True) as warmup_warnings:
+                        warnings.simplefilter("always", soundcard_warning)
+                        recorder.record(numframes=(self.config.capture_sample_rate *
+                                                   self.config.capture_warmup_ms // 1000))
+                    warmup_discontinuities += len(warmup_warnings)
+                if warmup_discontinuities:
+                    LOGGER.warning(
+                        "Audio backend reported %s warm-up discontinuities; discarded warm-up "
+                        "samples as expected", warmup_discontinuities)
+                LOGGER.info("Audio stream warm-up complete | source=%s", source_description)
                 next_diagnostic = time.monotonic()
                 next_warning_log = 0.0
                 first_block = True
@@ -157,7 +190,9 @@ class AudioCaptureWorker:
                             microphone.name, self.config.capture_chunk_ms,
                         )
                         next_warning_log = now + 5.0
-                    raw_frame = np.asarray(block[:, 0], dtype=np.float32)
+                    samples = np.asarray(block, dtype=np.float32)
+                    raw_frame = (samples if samples.ndim == 1 else
+                                 np.mean(samples, axis=1, dtype=np.float32))
                     resampled = resample_audio_block(
                         raw_frame, self.config.capture_sample_rate,
                         self.config.sample_rate)
@@ -171,8 +206,10 @@ class AudioCaptureWorker:
                     if first_block:
                         stats = audio_statistics(resampled)
                         LOGGER.info(
-                            "Microphone capture active | device=%s samples=%s rms=%.6f peak=%.6f",
-                            microphone.name, stats["samples"], stats["rms"], stats["peak"],
+                            "Audio capture active | source=%s device=%s samples=%s "
+                            "rms=%.6f peak=%.6f",
+                            source_description, microphone.name, stats["samples"],
+                            stats["rms"], stats["peak"],
                         )
                         first_block = False
                     if now >= next_diagnostic:

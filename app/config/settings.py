@@ -39,11 +39,13 @@ DEFAULT_VOCABULARY = (
 @dataclass
 class AppConfig:
     sample_rate: int = 16_000
-    # Realtek/WASAPI devices normally run natively at 48 kHz. Asking Media
-    # Foundation to capture directly at 16 kHz caused discontinuities and garbled
-    # Whisper input on the reported machine, so capture natively and downsample.
-    capture_sample_rate: int = 48_000
+    # The proven legacy Windows path records the default speaker's loopback at
+    # Whisper's native rate. ``microphone`` remains selectable in the GUI.
+    capture_source: str = "loopback"
+    capture_sample_rate: int = 16_000
     channels: int = 1
+    capture_warmup_blocks: int = 3
+    capture_warmup_ms: int = 100
     frame_ms: int = 30
     # Read several VAD frames per backend call. Media Foundation can report
     # discontinuities when it is polled every 30 ms; 120 ms keeps enough

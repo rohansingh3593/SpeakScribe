@@ -8,7 +8,7 @@ import numpy as np
 import app.audio.audio_pipeline as audio_pipeline
 from app.audio.audio_pipeline import (
     AudioCaptureWorker, EnergySpeechDetector, audio_statistics, prepare_audio_for_asr,
-    resample_audio_block,
+    resample_audio_block, select_capture_device,
 )
 from app.config.settings import AppConfig
 from app.utils.logger import configure_logging
@@ -94,8 +94,12 @@ def test_capture_batches_backend_reads_and_keeps_frames_after_discontinuity(
         name="Regression microphone",
         recorder=lambda **_: Recorder(),
     )
+    speaker = SimpleNamespace(name="Regression speaker")
     modules = {
-        "soundcard": SimpleNamespace(default_microphone=lambda: microphone),
+        "soundcard": SimpleNamespace(
+            default_speaker=lambda: speaker,
+            get_microphone=lambda **_: microphone,
+        ),
         "soundcard.mediafoundation": SimpleNamespace(SoundcardRuntimeWarning=BackendWarning),
     }
     monkeypatch.setattr(audio_pipeline, "import_module", modules.__getitem__)
@@ -103,10 +107,36 @@ def test_capture_batches_backend_reads_and_keeps_frames_after_discontinuity(
     output = Queue(maxsize=10)
     errors = []
 
-    AudioCaptureWorker(AppConfig(), output, stop, errors.append).run()
+    AudioCaptureWorker(AppConfig(capture_warmup_blocks=0), output, stop, errors.append).run()
 
     assert not errors
     assert output.qsize() == 4
     audio_log = (session.directory / "modules/audio.log").read_text(encoding="utf-8")
-    assert "Microphone capture active" in audio_log
+    assert "Audio capture active" in audio_log
     assert "data discontinuity; capture continues" in audio_log
+
+
+def test_capture_source_matches_legacy_speaker_loopback_and_physical_microphone():
+    speaker = SimpleNamespace(name="Speakers")
+    loopback = SimpleNamespace(name="Loopback")
+    microphone = SimpleNamespace(name="Microphone")
+    calls = []
+    soundcard = SimpleNamespace(
+        default_speaker=lambda: speaker,
+        default_microphone=lambda: microphone,
+        get_microphone=lambda **kwargs: calls.append(kwargs) or loopback,
+    )
+
+    assert select_capture_device(soundcard, "loopback") == (
+        loopback, "speaker-loopback:Speakers", None)
+    assert calls == [{"id": "Speakers", "include_loopback": True}]
+    assert select_capture_device(soundcard, "microphone") == (
+        microphone, "microphone:Microphone", 1)
+
+
+def test_default_capture_settings_preserve_the_proven_legacy_path():
+    config = AppConfig()
+    assert config.capture_source == "loopback"
+    assert config.capture_sample_rate == 16_000
+    assert config.capture_warmup_blocks == 3
+    assert config.capture_warmup_ms == 100

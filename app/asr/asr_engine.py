@@ -210,6 +210,9 @@ class ASRWorker:
             self.signals.status_changed.emit("Loading speech model…")
             engine = self.model_provider.get(self.config)
             self.signals.status_changed.emit("🎤 Listening")
+            LOGGER.info("ASR worker ready | model=%s language=%s device=%s",
+                        self.config.model_size, self.config.language_mode,
+                        self.config.device)
             process = Process()
             stop_empty_since = None
             while True:
@@ -237,16 +240,22 @@ class ASRWorker:
                           f"queue={self.queue.qsize()} cpu={process.cpu_percent():.1f}% "
                           f"ram={process.memory_info().rss/1024**3:.2f}GB")
                 if not text:
+                    if job.final:
+                        LOGGER.warning(
+                            "ASR returned no text | utterance=%s audio=%.2fs inference=%.2fs",
+                            job.utterance_id, duration, elapsed)
                     continue
                 self.signals.language_changed.emit(language)
                 if job.final:
                     self.history.append(text)
                     self.signals.final_text.emit(text)
                     self.signals.partial_text.emit("")
-                    LOGGER.debug(f"Final result: {text}")
+                    LOGGER.info("Transcription ready | utterance=%s language=%s text=%r",
+                                job.utterance_id, language, text)
                 else:
                     self.signals.partial_text.emit(text)
-                    LOGGER.debug(f"Partial result: {text}")
+                    LOGGER.info("Live transcription | utterance=%s language=%s text=%r",
+                                job.utterance_id, language, text)
         except Exception as exc:
             log_exception("ASR-WORKER", exc)
             self.signals.error.emit(str(exc))

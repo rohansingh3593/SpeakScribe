@@ -172,6 +172,8 @@ class MainWindow(QWidget):
         self.script.addItems(["Original", "Latin", "Devanagari"])
         self.language_mode = QComboBox()
         self.language_mode.addItems(["Hindi / Hinglish", "Auto", "English"])
+        self.capture_source = QComboBox()
+        self.capture_source.addItems(["System audio (legacy)", "Microphone"])
         self.translation_toggle = QCheckBox("Translation")
         controls = QHBoxLayout()
         controls.addWidget(QLabel("Performance"))
@@ -180,6 +182,8 @@ class MainWindow(QWidget):
         controls.addWidget(self.script)
         controls.addWidget(QLabel("Recognition"))
         controls.addWidget(self.language_mode)
+        controls.addWidget(QLabel("Capture"))
+        controls.addWidget(self.capture_source)
         controls.addWidget(self.translation_toggle)
 
         self.start_button = QPushButton("Start Listening")
@@ -226,6 +230,8 @@ class MainWindow(QWidget):
         config = AppConfig(performance_mode=mode,
                            script_mode=self.script.currentText().lower(),
                            language_mode=recognition_modes[self.language_mode.currentText()],
+                           capture_source=("loopback" if self.capture_source.currentIndex() == 0
+                                           else "microphone"),
                            translation_enabled=self.translation_toggle.isChecked())
         self.performance_label.setText(f"Performance: {self.performance.currentText()}")
         self.status.setText("Starting…")
@@ -234,6 +240,7 @@ class MainWindow(QWidget):
         self.performance.setEnabled(False)
         self.script.setEnabled(False)
         self.language_mode.setEnabled(False)
+        self.capture_source.setEnabled(False)
         self.translation_toggle.setEnabled(False)
         self.translation.setVisible(config.translation_enabled)
         for update in self.controller.start_stream(config):
@@ -248,6 +255,7 @@ class MainWindow(QWidget):
         self.performance.setEnabled(True)
         self.script.setEnabled(True)
         self.language_mode.setEnabled(True)
+        self.capture_source.setEnabled(True)
         self.translation_toggle.setEnabled(True)
 
     def add_final(self, text: str) -> None:
