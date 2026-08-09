@@ -2,7 +2,8 @@ import sys
 from types import ModuleType
 
 from app.processing.text_processing import (
-    apply_script_mode, clean_text, detect_language, is_low_quality_text,
+    apply_script_mode, clean_text, compose_live_transcript, detect_language,
+    is_low_quality_text,
     remove_history_overlap,
 )
 
@@ -37,6 +38,17 @@ def test_cleanup_bounds_three_or_more_adjacent_copies_without_erasing_emphasis()
 
 def test_history_overlap():
     assert remove_history_overlap("I updated SQLAlchemy", "SQLAlchemy and FastAPI") == "and FastAPI"
+
+
+def test_live_transcript_combines_committed_and_partial_text_in_one_stream():
+    assert compose_live_transcript(
+        ["Build completed."], "Starting the deployment") == (
+        "Build completed.\nStarting the deployment")
+
+
+def test_live_transcript_ignores_empty_and_late_duplicate_partial_callbacks():
+    assert compose_live_transcript(["काम पूरा हो गया।", ""], "काम पूरा हो गया।") == (
+        "काम पूरा हो गया।")
 
 
 def test_original_script_mode_does_not_load_optional_transliteration():

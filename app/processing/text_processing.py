@@ -15,6 +15,17 @@ HINGLISH_WORDS = {
 }
 
 
+def compose_live_transcript(final_texts, partial_text: str = "") -> str:
+    """Render committed and in-progress recognition in one stable text stream."""
+    lines = [str(text).strip() for text in final_texts if str(text).strip()]
+    partial = partial_text.strip()
+    # A queued partial may arrive immediately after its identical final. Never
+    # show that transient callback twice in the combined view.
+    if partial and (not lines or partial.casefold() != lines[-1].casefold()):
+        lines.append(partial)
+    return "\n".join(lines)
+
+
 def detect_language(text: str, whisper_language: str | None = None) -> str:
     devanagari = len(re.findall(r"[\u0900-\u097f]", text))
     latin_words = re.findall(r"[A-Za-z']+", text.lower())

@@ -22,6 +22,7 @@ from app.utils.logger import (
     configure_logging, emit_status, get_logger, get_output_path, log_exception, log_print,
 )
 from app.processing.translation import TranslationWorker
+from app.processing.text_processing import compose_live_transcript
 
 
 class SpeechSignals(QObject):
@@ -155,9 +156,6 @@ class MainWindow(QWidget):
         self.status = QLabel("Ready")
         self.language = QLabel("Language: —")
         self.performance_label = QLabel("Performance: Balanced")
-        self.live = QTextEdit()
-        self.live.setReadOnly(True)
-        self.live.setMaximumHeight(110)
         self.transcription = QTextEdit()
         self.transcription.setReadOnly(True)
         self.translation = QTextEdit()
@@ -205,9 +203,7 @@ class MainWindow(QWidget):
         layout.addWidget(self.language)
         layout.addWidget(self.performance_label)
         layout.addLayout(controls)
-        layout.addWidget(QLabel("Live:"))
-        layout.addWidget(self.live)
-        layout.addWidget(QLabel("Transcription:"))
+        layout.addWidget(QLabel("Live transcription:"))
         layout.addWidget(self.transcription)
         layout.addWidget(self.translation)
         layout.addLayout(buttons)
@@ -261,13 +257,12 @@ class MainWindow(QWidget):
     def add_final(self, text: str) -> None:
         log_print(f"[GUI] final signal received chars={len(text)} text={text!r}")
         self.final_history.append(text)
-        self.transcription.setPlainText("\n".join(self.final_history))
-        self.live.clear()
+        self.transcription.setPlainText(compose_live_transcript(self.final_history))
         self.controller.translate(text)  # display has already happened
 
     def show_partial(self, text: str) -> None:
         log_print(f"[GUI] partial signal received chars={len(text)} text={text!r}")
-        self.live.setPlainText(text)
+        self.transcription.setPlainText(compose_live_transcript(self.final_history, text))
 
     def show_translation(self, text: str) -> None:
         self.translation.setPlainText(f"Translation: {text}")
@@ -278,7 +273,6 @@ class MainWindow(QWidget):
 
     def clear_text(self) -> None:
         self.final_history.clear()
-        self.live.clear()
         self.transcription.clear()
         self.translation.clear()
 

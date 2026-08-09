@@ -48,6 +48,13 @@ previously working SoundCard path (`default_speaker` → matching loopback devic
 including a three-block warm-up and multichannel-to-mono downmix. Select
 **Microphone** when speech should come directly from the default physical microphone.
 
+Live hypotheses and committed final results now share one **Live transcription** view.
+The current partial appears directly after committed lines and is replaced in place as
+Whisper refines it, rather than being copied into a second text box. Rolling partials
+begin after roughly 0.8 seconds of captured speech and refresh at most every 0.4 seconds;
+the bounded ASR queue still replaces stale partial work so final results remain the
+priority on CPU fallback.
+
 The application continuously listens to microphone input and converts speech into text with a focus on **low latency, transcription accuracy, and Hindi/English/Hinglish support**.
 
 It is designed to handle natural code-switching between Hindi and English while preserving technical terms such as Python, SQLAlchemy, FastAPI, Jenkins, Docker, GitHub, Jira, and Pull Request.

@@ -140,3 +140,6 @@ def test_default_capture_settings_preserve_the_proven_legacy_path():
     assert config.capture_sample_rate == 16_000
     assert config.capture_warmup_blocks == 3
     assert config.capture_warmup_ms == 100
+    assert config.min_partial_duration == 0.80
+    assert config.min_partial_speech_duration == 0.30
+    assert config.partial_interval == 0.40

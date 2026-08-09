@@ -63,9 +63,11 @@ class AppConfig:
     silence_duration: float = 1.50
     min_speech_duration: float = 0.50
     pre_speech_duration: float = 0.20
-    partial_interval: float = 0.50
-    min_partial_duration: float = 1.20
-    min_partial_speech_duration: float = 0.50
+    # Publish a first rolling hypothesis quickly while the one-item ASR queue
+    # continues to prevent CPU fallback from accumulating stale partial jobs.
+    partial_interval: float = 0.40
+    min_partial_duration: float = 0.80
+    min_partial_speech_duration: float = 0.30
     max_utterance_seconds: float = 15.0
     rolling_window_seconds: float = 5.0
     overlap_seconds: float = 0.35
