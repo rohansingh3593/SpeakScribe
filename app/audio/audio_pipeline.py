@@ -76,14 +76,36 @@ class EnergySpeechDetector:
         self.config = config
         self.speaking = False
         self.start_frames = 0
+        self.noise_floor = config.adaptive_vad_floor
+        self.effective_start_threshold = config.speech_threshold
+        self.effective_silence_threshold = config.silence_threshold
 
     def classify(self, frame: np.ndarray) -> tuple[bool, float]:
         rms = float(np.sqrt(np.mean(np.square(frame), dtype=np.float64)))
         if self.speaking:
-            active = rms >= self.config.silence_threshold
+            active = rms >= self.effective_silence_threshold
         else:
+            # A fixed threshold makes quiet microphones appear completely
+            # silent. Track only sub-threshold frames and cap the adaptive
+            # threshold at the configured value so normal/loud capture keeps
+            # its historical behaviour.
+            if self.config.adaptive_vad_enabled:
+                if rms < self.config.speech_threshold and self.start_frames == 0:
+                    self.noise_floor = 0.95 * self.noise_floor + 0.05 * rms
+                self.effective_start_threshold = min(
+                    self.config.speech_threshold,
+                    max(self.config.adaptive_vad_floor,
+                        self.noise_floor * self.config.adaptive_vad_multiplier),
+                )
+                self.effective_silence_threshold = min(
+                    self.config.silence_threshold,
+                    self.effective_start_threshold * 0.7,
+                )
+            else:
+                self.effective_start_threshold = self.config.speech_threshold
+                self.effective_silence_threshold = self.config.silence_threshold
             self.start_frames = (self.start_frames + 1
-                                 if rms >= self.config.speech_threshold else 0)
+                                 if rms >= self.effective_start_threshold else 0)
             active = self.start_frames >= self.config.speech_start_frames
             if active:
                 self.speaking = True
@@ -113,32 +135,60 @@ class AudioCaptureWorker:
             microphone = sc.default_microphone()
             if microphone is None:
                 raise RuntimeError("No default microphone is available")
-            LOGGER.debug(f"Audio device: {microphone.name}")
-            with warnings.catch_warnings():
-                warnings.filterwarnings("once", category=soundcard_warning)
-                with microphone.recorder(samplerate=self.config.capture_sample_rate,
-                                         channels=self.config.channels) as recorder:
-                    next_diagnostic = time.monotonic()
-                    while not self.stop_event.is_set():
-                        block = recorder.record(numframes=self.config.capture_frame_samples)
-                        raw_frame = np.asarray(block[:, 0], dtype=np.float32)
-                        frame = resample_audio_block(
-                            raw_frame, self.config.capture_sample_rate,
-                            self.config.sample_rate)
-                        now = time.monotonic()
-                        if now >= next_diagnostic:
-                            raw_stats = audio_statistics(raw_frame)
-                            asr_stats = audio_statistics(frame)
-                            LOGGER.debug(
-                                "[AUDIO] capture "
-                                f"raw_shape={tuple(block.shape)} raw_rate={self.config.capture_sample_rate} "
-                                f"raw_rms={raw_stats['rms']:.6f} raw_peak={raw_stats['peak']:.6f} "
-                                f"asr_samples={asr_stats['samples']} asr_rms={asr_stats['rms']:.6f} "
-                                f"asr_peak={asr_stats['peak']:.6f} mean={asr_stats['mean']:.6f} "
-                                f"zeros={asr_stats['zero_ratio']:.3f} finite={asr_stats['finite']} "
-                                f"audio_queue={self.output.qsize()}"
-                            )
-                            next_diagnostic = now + self.config.debug_log_interval
+            LOGGER.info(
+                "Microphone capture opening | device=%s rate=%s channels=%s chunk_ms=%s",
+                microphone.name, self.config.capture_sample_rate, self.config.channels,
+                self.config.capture_chunk_ms,
+            )
+            with microphone.recorder(samplerate=self.config.capture_sample_rate,
+                                     channels=self.config.channels) as recorder:
+                next_diagnostic = time.monotonic()
+                next_warning_log = 0.0
+                first_block = True
+                while not self.stop_event.is_set():
+                    with warnings.catch_warnings(record=True) as captured_warnings:
+                        warnings.simplefilter("always", soundcard_warning)
+                        block = recorder.record(numframes=self.config.capture_chunk_samples)
+                    now = time.monotonic()
+                    if captured_warnings and now >= next_warning_log:
+                        LOGGER.warning(
+                            "Audio backend reported a data discontinuity; capture continues "
+                            "with the newest samples | device=%s chunk_ms=%s",
+                            microphone.name, self.config.capture_chunk_ms,
+                        )
+                        next_warning_log = now + 5.0
+                    raw_frame = np.asarray(block[:, 0], dtype=np.float32)
+                    resampled = resample_audio_block(
+                        raw_frame, self.config.capture_sample_rate,
+                        self.config.sample_rate)
+                    frame_samples = self.config.frame_samples
+                    frames = [resampled[index:index + frame_samples]
+                              for index in range(0, len(resampled), frame_samples)
+                              if len(resampled[index:index + frame_samples]) == frame_samples]
+                    if not frames:
+                        LOGGER.warning("Audio backend returned an incomplete capture block")
+                        continue
+                    if first_block:
+                        stats = audio_statistics(resampled)
+                        LOGGER.info(
+                            "Microphone capture active | device=%s samples=%s rms=%.6f peak=%.6f",
+                            microphone.name, stats["samples"], stats["rms"], stats["peak"],
+                        )
+                        first_block = False
+                    if now >= next_diagnostic:
+                        raw_stats = audio_statistics(raw_frame)
+                        asr_stats = audio_statistics(resampled)
+                        LOGGER.debug(
+                            "[AUDIO] capture "
+                            f"raw_shape={tuple(block.shape)} raw_rate={self.config.capture_sample_rate} "
+                            f"raw_rms={raw_stats['rms']:.6f} raw_peak={raw_stats['peak']:.6f} "
+                            f"asr_samples={asr_stats['samples']} asr_rms={asr_stats['rms']:.6f} "
+                            f"asr_peak={asr_stats['peak']:.6f} mean={asr_stats['mean']:.6f} "
+                            f"zeros={asr_stats['zero_ratio']:.3f} finite={asr_stats['finite']} "
+                            f"audio_queue={self.output.qsize()}"
+                        )
+                        next_diagnostic = now + self.config.debug_log_interval
+                    for frame in frames:
                         try:
                             self.output.put(frame, timeout=0.05)
                         except Full:
@@ -147,7 +197,7 @@ class AudioCaptureWorker:
                             except Empty:
                                 pass
                             self.output.put_nowait(frame)
-                            LOGGER.debug("Audio queue full; dropped oldest raw frame")
+                            LOGGER.warning("Audio queue full; dropped oldest raw frame")
         except Exception as exc:
             log_exception("CAPTURE", exc)
             self.on_error(str(exc))
@@ -230,8 +280,10 @@ class SpeechBufferWorker:
                     f"rms_min={min(diagnostic_rms):.6f} "
                     f"rms_avg={sum(diagnostic_rms) / len(diagnostic_rms):.6f} "
                     f"rms_max={max(diagnostic_rms):.6f} "
-                    f"start_threshold={self.config.speech_threshold:.6f} "
-                    f"continue_threshold={self.config.silence_threshold:.6f} "
+                    f"start_threshold={self.detector.effective_start_threshold:.6f} "
+                    f"configured_threshold={self.config.speech_threshold:.6f} "
+                    f"noise_floor={self.detector.noise_floor:.6f} "
+                    f"continue_threshold={self.detector.effective_silence_threshold:.6f} "
                     f"start_frames={self.detector.start_frames}/{self.config.speech_start_frames} "
                     f"speaking={self.detector.speaking} active={active} "
                     f"buffer={len(speech) * frame_seconds:.2f}s voiced={voiced_duration:.2f}s "
@@ -249,7 +301,10 @@ class SpeechBufferWorker:
                     pre.clear()
                     silence = 0.0
                     last_partial = now
-                    LOGGER.debug(f"Speech detected: utterance={self.utterance_id} rms={rms:.5f}")
+                    LOGGER.info(
+                        "Voice detected | utterance=%s rms=%.6f threshold=%.6f",
+                        self.utterance_id, rms, self.detector.effective_start_threshold,
+                    )
                 continue
             speech.append(frame)
             if active:
@@ -274,7 +329,10 @@ class SpeechBufferWorker:
                         audio = audio[:-trim]
                     self._submit(ASRJob(audio, True, self.utterance_id, now,
                                         voiced_duration))
-                    LOGGER.debug(f"Speech ended: utterance={self.utterance_id} duration={usable:.2f}s")
+                    LOGGER.info(
+                        "Voice captured | utterance=%s voiced=%.2fs audio=%.2fs; queued for ASR",
+                        self.utterance_id, usable, len(audio) / self.config.sample_rate,
+                    )
                 else:
                     LOGGER.debug(
                         f"[VAD] discarded short utterance={self.utterance_id} "

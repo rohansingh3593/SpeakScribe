@@ -45,12 +45,19 @@ class AppConfig:
     capture_sample_rate: int = 48_000
     channels: int = 1
     frame_ms: int = 30
+    # Read several VAD frames per backend call. Media Foundation can report
+    # discontinuities when it is polled every 30 ms; 120 ms keeps enough
+    # headroom while frames are still emitted to VAD at the original cadence.
+    capture_chunk_ms: int = 120
     # Laptop microphone levels are commonly well below 0.01 after SoundCard's
     # float conversion. These remain above a typical quiet-room noise floor but
     # do not discard softer Hindi phonemes before Whisper sees them.
     speech_threshold: float = 0.003
     silence_threshold: float = 0.002
     speech_start_frames: int = 3
+    adaptive_vad_enabled: bool = True
+    adaptive_vad_floor: float = 0.0002
+    adaptive_vad_multiplier: float = 2.5
     silence_duration: float = 1.50
     min_speech_duration: float = 0.50
     pre_speech_duration: float = 0.20
@@ -91,6 +98,10 @@ class AppConfig:
     @property
     def capture_frame_samples(self) -> int:
         return self.capture_sample_rate * self.frame_ms // 1000
+
+    @property
+    def capture_chunk_samples(self) -> int:
+        return self.capture_sample_rate * self.capture_chunk_ms // 1000
 
     @property
     def profile(self) -> DecodeProfile:

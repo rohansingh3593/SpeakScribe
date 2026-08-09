@@ -1,15 +1,23 @@
+from queue import Queue
+from threading import Event
+from types import SimpleNamespace
+import warnings
+
 import numpy as np
 
+import app.audio.audio_pipeline as audio_pipeline
 from app.audio.audio_pipeline import (
-    EnergySpeechDetector, audio_statistics, prepare_audio_for_asr,
+    AudioCaptureWorker, EnergySpeechDetector, audio_statistics, prepare_audio_for_asr,
     resample_audio_block,
 )
 from app.config.settings import AppConfig
+from app.utils.logger import configure_logging
 
 
 def test_energy_detector_hysteresis_and_reset():
     detector = EnergySpeechDetector(AppConfig(
         speech_threshold=0.012, silence_threshold=0.008, speech_start_frames=1,
+        adaptive_vad_enabled=False,
     ))
     assert not detector.classify(np.zeros(480, dtype=np.float32))[0]
     assert detector.classify(np.full(480, 0.02, dtype=np.float32))[0]
@@ -24,6 +32,17 @@ def test_default_detector_accepts_quiet_laptop_microphone_speech():
     assert not detector.classify(frame)[0]
     assert not detector.classify(frame)[0]
     assert detector.classify(frame)[0]
+
+
+def test_adaptive_detector_accepts_voice_below_fixed_threshold():
+    detector = EnergySpeechDetector(AppConfig(speech_start_frames=3))
+    quiet_voice = np.full(480, 0.0008, dtype=np.float32)
+    assert not detector.classify(quiet_voice)[0]
+    assert not detector.classify(quiet_voice)[0]
+    assert detector.classify(quiet_voice)[0]
+    assert detector.effective_start_threshold < detector.config.speech_threshold
+    assert detector.classify(np.full(480, 0.0006, dtype=np.float32))[0]
+    assert detector.effective_silence_threshold < detector.config.silence_threshold
 
 
 def test_quiet_speech_is_centered_without_amplifying_noise():
@@ -50,3 +69,44 @@ def test_audio_statistics_expose_silence_and_invalid_samples():
     }
     invalid = audio_statistics(np.array([0.0, np.nan], dtype=np.float32))
     assert invalid["finite"] is False
+
+
+def test_capture_batches_backend_reads_and_keeps_frames_after_discontinuity(
+        tmp_path, monkeypatch):
+    class BackendWarning(RuntimeWarning):
+        pass
+
+    stop = Event()
+
+    class Recorder:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def record(self, numframes):
+            warnings.warn("data discontinuity in recording", BackendWarning)
+            stop.set()
+            return np.full((numframes, 1), 0.01, dtype=np.float32)
+
+    microphone = SimpleNamespace(
+        name="Regression microphone",
+        recorder=lambda **_: Recorder(),
+    )
+    modules = {
+        "soundcard": SimpleNamespace(default_microphone=lambda: microphone),
+        "soundcard.mediafoundation": SimpleNamespace(SoundcardRuntimeWarning=BackendWarning),
+    }
+    monkeypatch.setattr(audio_pipeline, "import_module", modules.__getitem__)
+    session = configure_logging(logs_root=tmp_path)
+    output = Queue(maxsize=10)
+    errors = []
+
+    AudioCaptureWorker(AppConfig(), output, stop, errors.append).run()
+
+    assert not errors
+    assert output.qsize() == 4
+    audio_log = (session.directory / "modules/audio.log").read_text(encoding="utf-8")
+    assert "Microphone capture active" in audio_log
+    assert "data discontinuity; capture continues" in audio_log
