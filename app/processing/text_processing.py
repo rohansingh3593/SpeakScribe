@@ -15,15 +15,35 @@ HINGLISH_WORDS = {
 }
 
 
-def compose_live_transcript(final_texts, partial_text: str = "") -> str:
-    """Render committed and in-progress recognition in one stable text stream."""
-    lines = [str(text).strip() for text in final_texts if str(text).strip()]
-    partial = partial_text.strip()
-    # A queued partial may arrive immediately after its identical final. Never
-    # show that transient callback twice in the combined view.
-    if partial and (not lines or partial.casefold() != lines[-1].casefold()):
-        lines.append(partial)
-    return "\n".join(lines)
+def incremental_transcript_delta(existing: str, candidate: str) -> str:
+    """Return only words not already present at the end of the live stream."""
+    old_words = existing.split()
+    new_words = candidate.strip().split()
+    if not new_words:
+        return ""
+
+    def comparable(word: str) -> str:
+        word = word.strip(".,!?;:।")
+        return re.sub(r"[^\w\u0900-\u097f]+", "", word).casefold()
+
+    old_keys = [comparable(word) for word in old_words]
+    new_keys = [comparable(word) for word in new_words]
+    for count in range(min(len(old_keys), len(new_keys)), 0, -1):
+        if old_keys[-count:] == new_keys[:count]:
+            return " ".join(new_words[count:])
+    # Whisper may revise the last partial instead of extending it. Since the UI
+    # is intentionally append-only, preserve what is visible but append only
+    # the revised suffix after the longest shared prefix, not the whole partial.
+    common_prefix = 0
+    for start in range(len(old_keys)):
+        count = 0
+        while (start + count < len(old_keys) and count < len(new_keys) and
+               old_keys[start + count] == new_keys[count]):
+            count += 1
+        common_prefix = max(common_prefix, count)
+    if common_prefix:
+        return " ".join(new_words[common_prefix:])
+    return " ".join(new_words)
 
 
 def detect_language(text: str, whisper_language: str | None = None) -> str:

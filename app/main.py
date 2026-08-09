@@ -22,7 +22,7 @@ from app.utils.logger import (
     configure_logging, emit_status, get_logger, get_output_path, log_exception, log_print,
 )
 from app.processing.translation import TranslationWorker
-from app.processing.text_processing import compose_live_transcript
+from app.processing.text_processing import incremental_transcript_delta
 
 
 class SpeechSignals(QObject):
@@ -257,12 +257,27 @@ class MainWindow(QWidget):
     def add_final(self, text: str) -> None:
         log_print(f"[GUI] final signal received chars={len(text)} text={text!r}")
         self.final_history.append(text)
-        self.transcription.setPlainText(compose_live_transcript(self.final_history))
+        self._append_live_text(text, final=True)
         self.controller.translate(text)  # display has already happened
 
     def show_partial(self, text: str) -> None:
         log_print(f"[GUI] partial signal received chars={len(text)} text={text!r}")
-        self.transcription.setPlainText(compose_live_transcript(self.final_history, text))
+        self._append_live_text(text)
+
+    def _append_live_text(self, text: str, *, final: bool = False) -> None:
+        """Append only the new suffix; never clear or replace visible live text."""
+        existing = self.transcription.toPlainText()
+        delta = incremental_transcript_delta(existing, text)
+        cursor = self.transcription.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        if delta:
+            if existing and not existing[-1].isspace():
+                cursor.insertText(" ")
+            cursor.insertText(delta)
+        if final and self.transcription.toPlainText().strip():
+            cursor.insertText("\n")
+        self.transcription.setTextCursor(cursor)
+        self.transcription.ensureCursorVisible()
 
     def show_translation(self, text: str) -> None:
         self.translation.setPlainText(f"Translation: {text}")
