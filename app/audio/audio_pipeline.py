@@ -11,8 +11,10 @@ import warnings
 import numpy as np
 
 from app.config.settings import AppConfig
-from app.utils.logger import log_exception, log_print
+from app.utils.logger import get_logger, log_exception
 
+
+LOGGER = get_logger("audio")
 
 @dataclass(frozen=True)
 class ASRJob:
@@ -111,7 +113,7 @@ class AudioCaptureWorker:
             microphone = sc.default_microphone()
             if microphone is None:
                 raise RuntimeError("No default microphone is available")
-            log_print(f"Audio device: {microphone.name}")
+            LOGGER.debug(f"Audio device: {microphone.name}")
             with warnings.catch_warnings():
                 warnings.filterwarnings("once", category=soundcard_warning)
                 with microphone.recorder(samplerate=self.config.capture_sample_rate,
@@ -127,7 +129,7 @@ class AudioCaptureWorker:
                         if now >= next_diagnostic:
                             raw_stats = audio_statistics(raw_frame)
                             asr_stats = audio_statistics(frame)
-                            log_print(
+                            LOGGER.debug(
                                 "[AUDIO] capture "
                                 f"raw_shape={tuple(block.shape)} raw_rate={self.config.capture_sample_rate} "
                                 f"raw_rms={raw_stats['rms']:.6f} raw_peak={raw_stats['peak']:.6f} "
@@ -145,7 +147,7 @@ class AudioCaptureWorker:
                             except Empty:
                                 pass
                             self.output.put_nowait(frame)
-                            log_print("Audio queue full; dropped oldest raw frame")
+                            LOGGER.debug("Audio queue full; dropped oldest raw frame")
         except Exception as exc:
             log_exception("CAPTURE", exc)
             self.on_error(str(exc))
@@ -160,7 +162,7 @@ class SpeechBufferWorker:
         self.utterance_id = 0
 
     def _submit(self, job: ASRJob) -> None:
-        log_print(
+        LOGGER.debug(
             f"[QUEUE] submit final={job.final} utterance={job.utterance_id} "
             f"audio={len(job.audio) / self.config.sample_rate:.2f}s "
             f"voiced={job.speech_seconds if job.speech_seconds is not None else -1:.2f}s "
@@ -177,7 +179,7 @@ class SpeechBufferWorker:
             if pending is not None and pending.final:
                 self.asr_queue.put_nowait(pending)
             elif pending is not None:
-                log_print(f"[QUEUE] evicted obsolete partial utterance={pending.utterance_id}")
+                LOGGER.debug(f"[QUEUE] evicted obsolete partial utterance={pending.utterance_id}")
 
             # Existing finals are never evicted; wait briefly for inference.
             deadline = time.monotonic() + 0.5 if self.stop_event.is_set() else None
@@ -198,7 +200,7 @@ class SpeechBufferWorker:
                     return
                 if pending.final:
                     self.asr_queue.put_nowait(pending)
-                    log_print("[QUEUE] kept queued final; dropped new partial")
+                    LOGGER.debug("[QUEUE] kept queued final; dropped new partial")
                     return
                 try:
                     self.asr_queue.put_nowait(job)
@@ -223,7 +225,7 @@ class SpeechBufferWorker:
             now = time.monotonic()
             diagnostic_rms.append(rms)
             if now >= next_diagnostic:
-                log_print(
+                LOGGER.debug(
                     "[VAD] "
                     f"rms_min={min(diagnostic_rms):.6f} "
                     f"rms_avg={sum(diagnostic_rms) / len(diagnostic_rms):.6f} "
@@ -247,7 +249,7 @@ class SpeechBufferWorker:
                     pre.clear()
                     silence = 0.0
                     last_partial = now
-                    log_print(f"Speech detected: utterance={self.utterance_id} rms={rms:.5f}")
+                    LOGGER.debug(f"Speech detected: utterance={self.utterance_id} rms={rms:.5f}")
                 continue
             speech.append(frame)
             if active:
@@ -272,9 +274,9 @@ class SpeechBufferWorker:
                         audio = audio[:-trim]
                     self._submit(ASRJob(audio, True, self.utterance_id, now,
                                         voiced_duration))
-                    log_print(f"Speech ended: utterance={self.utterance_id} duration={usable:.2f}s")
+                    LOGGER.debug(f"Speech ended: utterance={self.utterance_id} duration={usable:.2f}s")
                 else:
-                    log_print(
+                    LOGGER.debug(
                         f"[VAD] discarded short utterance={self.utterance_id} "
                         f"usable={usable:.2f}s minimum={self.config.min_speech_duration:.2f}s"
                     )

@@ -1,6 +1,8 @@
 """SpeakScribe application entry point and thread-safe PyQt interface."""
 
 from faulthandler import enable
+import argparse
+import logging
 from queue import Empty, Full, Queue
 from threading import Event, Thread
 import signal
@@ -16,7 +18,9 @@ from PyQt6.QtWidgets import (
 from app.asr.asr_engine import ASRWorker, WhisperModelProvider
 from app.audio.audio_pipeline import AudioCaptureWorker, SpeechBufferWorker
 from app.config.settings import AppConfig, PerformanceMode
-from app.utils.logger import get_output_path, log_exception, log_print
+from app.utils.logger import (
+    configure_logging, emit_status, get_logger, get_output_path, log_exception, log_print,
+)
 from app.processing.translation import TranslationWorker
 
 
@@ -94,6 +98,17 @@ class SpeechController:
             f"model={config.model_size} mode={config.performance_mode.value} "
             f"debug_audio={config.debug_audio_enabled}"
         )
+
+    def start_stream(self, config: AppConfig):
+        """Preserve ``start`` while yielding live, already-logged status updates."""
+        if self.running:
+            yield emit_status("Listening session is already running", level=logging.WARNING,
+                              component="controller")
+            return
+        yield emit_status("Preparing audio and ASR workers", component="controller")
+        self.start(config)
+        yield emit_status("Audio capture and transcription workers started",
+                          component="controller")
 
     def translate(self, text: str) -> None:
         if self.translation_queue is None:
@@ -221,7 +236,8 @@ class MainWindow(QWidget):
         self.language_mode.setEnabled(False)
         self.translation_toggle.setEnabled(False)
         self.translation.setVisible(config.translation_enabled)
-        self.controller.start(config)
+        for update in self.controller.start_stream(config):
+            self.status.setText(update.message)
 
     def stop_listening(self) -> None:
         self.status.setText("Stopping…")
@@ -269,14 +285,38 @@ class MainWindow(QWidget):
         event.accept()
 
 
-def main() -> int:
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true",
+                        help="Show DEBUG logs in the terminal; files always retain them")
+    return parser.parse_known_args(argv)
+
+
+def startup_status():
+    """Yield application startup milestones immediately after logging them."""
+    yield emit_status("Starting SpeakScribe", component="application")
+    yield emit_status("Initializing Qt application", component="application")
+    yield emit_status("Creating main window", component="application")
+
+
+def main(argv=None) -> int:
     enable()
-    log_print("Application startup")
-    app = QApplication(sys.argv)
-    signal.signal(signal.SIGINT, lambda *_: app.quit())
-    window = MainWindow()
-    window.show()
-    return app.exec()
+    args, qt_args = parse_args(argv)
+    configure_logging(debug=args.debug)
+    statuses = startup_status()
+    try:
+        next(statuses)
+        next(statuses)
+        app = QApplication([sys.argv[0], *qt_args])
+        signal.signal(signal.SIGINT, lambda *_: app.quit())
+        next(statuses)
+        window = MainWindow()
+        window.show()
+        emit_status("SpeakScribe is ready", component="application")
+        return app.exec()
+    except Exception:
+        get_logger("application").critical("Application startup failed", exc_info=True)
+        raise
 
 
 if __name__ == "__main__":

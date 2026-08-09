@@ -11,15 +11,9 @@ import shutil
 import statistics
 import time
 
+from app.utils.logger import configure_logging as configure_application_logging, get_logger
+
 SLOW_TEST_WARNING_SECONDS = 5.0
-LOGGER_NAME = "speakscribe.speech_suite"
-
-
-class _FailuresOnly(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        return record.levelno >= logging.WARNING or getattr(record, "test_status", "") in {
-            "WARNING", "FAIL", "ERROR", "TIMEOUT", "CRASH"
-        }
 
 
 @dataclass(frozen=True)
@@ -28,48 +22,25 @@ class LogPaths:
     main: Path
     latest: Path
     failures: Path
+    debug: Path
 
 
 def configure_logging(*, debug: bool = False, quiet: bool = False,
                       log_level: str | None = None, log_dir: Path | str = "logs"):
     """Configure idempotent console, complete-run, and failure-only handlers."""
-    directory = Path(log_dir)
-    (directory / "errors").mkdir(parents=True, exist_ok=True)
-    run_id = datetime.now().astimezone().strftime("%Y-%m-%d_%H%M%S_%f")
-    paths = LogPaths(run_id, directory / f"test_run_{run_id}.log",
-                     directory / "latest.log",
-                     directory / "errors" / f"failed_tests_{run_id}.log")
-    logger = logging.getLogger(LOGGER_NAME)
-    logger.setLevel(logging.DEBUG)
-    logger.propagate = False
-    for handler in logger.handlers[:]:
-        handler.close()
-        logger.removeHandler(handler)
-
     explicit = getattr(logging, log_level.upper()) if log_level else None
     console_level = explicit if explicit is not None else (
         logging.DEBUG if debug else logging.ERROR if quiet else logging.INFO)
-    console = logging.StreamHandler()
-    console.setLevel(console_level)
-    console.setFormatter(logging.Formatter("[%(levelname)s] %(message)s") if debug
-                         else logging.Formatter("%(message)s"))
-    logger.addHandler(console)
-
-    structured = logging.Formatter(
-        "%(asctime)s | %(levelname)-8s | %(component)s | %(test_id)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S")
-    for path, failure_only in ((paths.main, False), (paths.failures, True)):
-        handler = logging.FileHandler(path, encoding="utf-8")
-        handler.setLevel(logging.DEBUG)
-        handler.setFormatter(structured)
-        if failure_only:
-            handler.addFilter(_FailuresOnly())
-        logger.addHandler(handler)
-    # Route the existing ASR/audio-pipeline diagnostics to the same complete log.
-    # Their legacy log_print calls default to DEBUG and therefore stay off a normal
-    # console while becoming visible with --debug.
-    from app.utils.logger import configure_runtime_logging
-    configure_runtime_logging(console_level=console_level, output_path=paths.main)
+    run_id = datetime.now().astimezone().strftime("test_run_%Y-%m-%d_%H%M%S_%f")
+    session = configure_application_logging(
+        debug=console_level <= logging.DEBUG, logs_root=log_dir, session_name=run_id)
+    # Respect explicit quiet/custom console levels after centralized setup.
+    for handler in logging.getLogger("speakscribe").handlers:
+        if isinstance(handler, logging.StreamHandler) and not isinstance(handler, logging.FileHandler):
+            handler.setLevel(console_level)
+    paths = LogPaths(run_id, session.session_log, Path(log_dir) / "latest.log",
+                     session.errors_log, session.debug_log)
+    logger = get_logger("speech_suite")
     return logger, paths
 
 
@@ -81,9 +52,7 @@ def log(logger: logging.Logger, level: int, message: str, *, component="SUITE",
 
 def finalize_latest(paths: LogPaths) -> None:
     """Publish latest.log only after handlers have flushed the completed run."""
-    for handler in logging.getLogger(LOGGER_NAME).handlers:
-        handler.flush()
-    for handler in logging.getLogger("speakscribe.runtime").handlers:
+    for handler in logging.getLogger("speakscribe").handlers:
         handler.flush()
     shutil.copyfile(paths.main, paths.latest)
 

@@ -17,9 +17,23 @@ into `tests/unit/`, `tests/integration/`, and the manifest-driven suite in
 The root `main.py` and `evaluation_runner.py` files are intentionally tiny compatibility
 launchers, so existing commands keep working without duplicating implementation. Static
 sample audio belongs under `data/`, while generated pytest sessions remain in ignored
-`test_logs/`.
+`test_logs/`. Application executions write separate structured sessions under ignored
+`logs/`.
 
 A fast, real-time Speech Recognition desktop application built with **Python, PyQt6, SoundCard, and Faster-Whisper**.
+
+### Runtime logging and live status
+
+`python main.py` shows INFO and higher messages, while `python main.py --debug` also
+shows DEBUG diagnostics. Both modes always persist full detail in a unique
+`logs/session_TIMESTAMP/` directory containing `session.log`, `debug.log`, `errors.log`,
+plus component files under `modules/` and optional repository-specific files under
+`repos/`. Old sessions are retention-limited by the centralized logger.
+
+Long-running orchestration can use `emit_status()` and `stream_status()` from
+`app.utils.logger`: every status is logged once and yielded immediately to its caller.
+Existing synchronous APIs remain available; `SpeechController.start_stream()` is the
+streaming wrapper used by the GUI without changing `SpeechController.start()`.
 
 The application continuously listens to microphone input and converts speech into text with a focus on **low latency, transcription accuracy, and Hindi/English/Hinglish support**.
 

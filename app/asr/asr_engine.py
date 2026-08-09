@@ -4,7 +4,6 @@ from collections import deque
 from queue import Empty, Queue
 from threading import Event, Lock
 from pathlib import Path
-import logging
 import time
 import wave
 
@@ -16,11 +15,13 @@ from psutil import Process
 from app.audio.audio_pipeline import ASRJob, audio_statistics, prepare_audio_for_asr
 from app.config.settings import AppConfig
 from app.config.decoding_policy import hotwords, initial_prompt, retry_thresholds
-from app.utils.logger import log_exception, log_print
+from app.utils.logger import get_logger, log_exception
 from app.processing.text_processing import (
     apply_script_mode, clean_text, detect_language, is_low_quality_text,
 )
 
+
+LOGGER = get_logger("asr")
 KNOWN_SHORT_HALLUCINATIONS = {
     "thank you", "thank you.", "thanks", "thanks.", "thanks for watching",
     "thanks for watching.", "see you in the next video.",
@@ -53,13 +54,13 @@ class WhisperEngine:
             try:
                 model = WhisperModel(self.config.model_size, device=device,
                                      compute_type=compute)
-                log_print(f"Model loaded: device={device} compute={compute} "
+                LOGGER.debug(f"Model loaded: device={device} compute={compute} "
                           f"seconds={time.monotonic() - started:.2f}")
                 return model
             except Exception as exc:
                 last_error = exc
-                log_print(f"Model initialization failed on {device}; trying fallback: {exc}",
-                          logging.WARNING)
+                LOGGER.warning("Model initialization failed on %s; trying fallback: %s",
+                               device, exc)
         raise RuntimeError(f"Could not load Whisper model: {last_error}")
 
     def transcribe(self, job: ASRJob, context: str) -> tuple[str, str]:
@@ -82,7 +83,7 @@ class WhisperEngine:
         prepared = prepare_audio_for_asr(job.audio)
         raw_stats = audio_statistics(job.audio)
         prepared_stats = audio_statistics(prepared)
-        log_print(
+        LOGGER.debug(
             "[ASR-INPUT] "
             f"utterance={job.utterance_id} final={job.final} "
             f"duration={len(job.audio) / self.config.sample_rate:.2f}s "
@@ -102,7 +103,7 @@ class WhisperEngine:
             prepared_path = directory / f"{stamp}-u{job.utterance_id}-prepared.wav"
             _write_debug_wav(raw_path, job.audio, self.config.sample_rate)
             _write_debug_wav(prepared_path, prepared, self.config.sample_rate)
-            log_print(f"[ASR-INPUT] saved debug audio: {raw_path}, {prepared_path}")
+            LOGGER.debug(f"[ASR-INPUT] saved debug audio: {raw_path}, {prepared_path}")
         def decode(initial_prompt, word_bias, *, relaxed=False):
             no_speech_threshold = self.config.no_speech_threshold
             log_probability_threshold = self.config.min_avg_logprob
@@ -128,7 +129,7 @@ class WhisperEngine:
             segment_count = 0
             for segment in segments:
                 segment_count += 1
-                log_print(
+                LOGGER.debug(
                     "[ASR-SEGMENT] "
                     f"start={segment.start:.2f} end={segment.end:.2f} "
                     f"no_speech={segment.no_speech_prob:.3f} "
@@ -140,7 +141,7 @@ class WhisperEngine:
                         segment.compression_ratio <= compression_threshold):
                     accepted.append(segment.text)
                 else:
-                    log_print(
+                    LOGGER.debug(
                         "[ASR] rejected segment "
                         f"no_speech={segment.no_speech_prob:.2f} "
                         f"avg_logprob={segment.avg_logprob:.2f} "
@@ -148,32 +149,32 @@ class WhisperEngine:
                         f"text={segment.text.strip()!r}"
                     )
             if not accepted:
-                log_print(f"[ASR] no usable segments returned (segments={segment_count})")
+                LOGGER.debug(f"[ASR] no usable segments returned (segments={segment_count})")
             decoded = clean_text(" ".join(accepted), final=job.final)
-            log_print(f"[ASR-TEXT] accepted={len(accepted)}/{segment_count} cleaned={decoded!r}")
+            LOGGER.debug(f"[ASR-TEXT] accepted={len(accepted)}/{segment_count} cleaned={decoded!r}")
             return decoded, decode_info
 
         text, info = decode(prompt, vocabulary_bias)
         if (len(job.audio) / self.config.sample_rate < 2.0 and
                 text.casefold() in KNOWN_SHORT_HALLUCINATIONS):
-            log_print(f"[ASR] rejected known short-audio hallucination: {text!r}")
+            LOGGER.debug(f"[ASR] rejected known short-audio hallucination: {text!r}")
             text = ""
         if is_low_quality_text(text):
-            log_print(f"[ASR] rejected corrupt/repetitive transcript: {text!r}")
+            LOGGER.debug(f"[ASR] rejected corrupt/repetitive transcript: {text!r}")
             text = ""
         if not text and job.final:
-            log_print("[ASR] final was unusable; retrying prompt-free with recovery thresholds")
+            LOGGER.debug("[ASR] final was unusable; retrying prompt-free with recovery thresholds")
             text, info = decode(None, None, relaxed=True)
             if (len(job.audio) / self.config.sample_rate < 2.0 and
                     text.casefold() in KNOWN_SHORT_HALLUCINATIONS):
-                log_print(f"[ASR] rejected known fallback hallucination: {text!r}")
+                LOGGER.debug(f"[ASR] rejected known fallback hallucination: {text!r}")
                 text = ""
             if is_low_quality_text(text):
-                log_print(f"[ASR] rejected corrupt/repetitive fallback: {text!r}")
+                LOGGER.debug(f"[ASR] rejected corrupt/repetitive fallback: {text!r}")
                 text = ""
         text = apply_script_mode(text, self.config.script_mode, self.config.vocabulary)
         language_probability = float(getattr(info, "language_probability", 0.0) or 0.0)
-        log_print(f"[ASR-TEXT] post_script={text!r} detected={getattr(info, 'language', None)!r} "
+        LOGGER.debug(f"[ASR-TEXT] post_script={text!r} detected={getattr(info, 'language', None)!r} "
                   f"probability={language_probability:.3f}")
         mode = detect_language(text, getattr(info, "language", None))
         return text, mode
@@ -231,7 +232,7 @@ class ASRWorker:
                 elapsed = time.monotonic() - started
                 duration = len(job.audio) / self.config.sample_rate
                 latency = time.monotonic() - job.captured_at
-                log_print(f"[ASR] final={job.final} audio={duration:.2f}s inference={elapsed:.2f}s "
+                LOGGER.debug(f"[ASR] final={job.final} audio={duration:.2f}s inference={elapsed:.2f}s "
                           f"rtf={elapsed/max(duration, .001):.2f} latency={latency:.2f}s "
                           f"queue={self.queue.qsize()} cpu={process.cpu_percent():.1f}% "
                           f"ram={process.memory_info().rss/1024**3:.2f}GB")
@@ -242,10 +243,10 @@ class ASRWorker:
                     self.history.append(text)
                     self.signals.final_text.emit(text)
                     self.signals.partial_text.emit("")
-                    log_print(f"Final result: {text}")
+                    LOGGER.debug(f"Final result: {text}")
                 else:
                     self.signals.partial_text.emit(text)
-                    log_print(f"Partial result: {text}")
+                    LOGGER.debug(f"Partial result: {text}")
         except Exception as exc:
             log_exception("ASR-WORKER", exc)
             self.signals.error.emit(str(exc))

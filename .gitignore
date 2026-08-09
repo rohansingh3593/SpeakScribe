@@ -3,6 +3,7 @@ __pycache__/
 .pytest_cache/
 speakscribe.log
 data/runtime_logs/
+logs/
 evaluation/report.md
 evaluation/report.json
 data/test_audio/*.wav

@@ -37,6 +37,9 @@ Speech transcription tests attach their real `EvaluationResult` through the cent
 normalization, WER edits, language evidence, timings, traceback, captured logs, suspected
 component, and recommended investigation without changing the test outcome.
 
+Application/runtime sessions are separate under `logs/session_TIMESTAMP/`; pytest never
+mixes its evidence with runtime application logs.
+
 Run all available production recordings and generate Markdown, JSON, and CSV reports:
 
 ```bash

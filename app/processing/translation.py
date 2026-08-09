@@ -5,7 +5,9 @@ from threading import Event
 
 from transformers import MarianMTModel, MarianTokenizer
 
-from app.utils.logger import log_print
+from app.utils.logger import get_logger
+
+LOGGER = get_logger("translation")
 
 
 class TranslationWorker:
@@ -17,7 +19,7 @@ class TranslationWorker:
 
     def _load(self) -> None:
         if self.model is None:
-            log_print(f"Loading optional translation model: {self.model_name}")
+            LOGGER.debug(f"Loading optional translation model: {self.model_name}")
             self.tokenizer = MarianTokenizer.from_pretrained(self.model_name)
             self.model = MarianMTModel.from_pretrained(self.model_name)
 
@@ -34,6 +36,5 @@ class TranslationWorker:
                 translated = self.tokenizer.batch_decode(output, skip_special_tokens=True)[0]
                 self.signals.translation_ready.emit(translated)
         except Exception as exc:
-            log_print(f"Translation error: {exc}")
+            LOGGER.error("Translation failed: %s", exc, exc_info=True)
             self.signals.error.emit(f"Translation: {exc}")
-
