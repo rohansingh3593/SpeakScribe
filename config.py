@@ -30,7 +30,9 @@ DEFAULT_VOCABULARY = (
     "Pydantic", "Jenkins", "Docker", "Kubernetes", "Git", "GitHub",
     "GitLab", "Jira", "API", "REST API", "pull request", "PR", "commit",
     "branch", "merge", "pipeline", "pytest", "database", "PostgreSQL",
-    "MongoDB", "Kafka", "Redis",
+    "MongoDB", "Kafka", "Redis", "update", "dependency", "run",
+    "image", "verify", "endpoint", "response", "save", "service",
+    "model", "result", "CPU", "RAM", "CI",
 )
 
 

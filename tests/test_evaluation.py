@@ -38,7 +38,7 @@ def test_status_boundaries():
 
 
 def test_evaluation_pins_language_without_transliterating_technical_terms():
-    assert evaluation_language_settings("Hindi") == ("hi", "original")
+    assert evaluation_language_settings("Hindi") == ("hi", "devanagari")
     assert evaluation_language_settings("English") == ("en", "original")
     assert evaluation_language_settings("Hinglish") == ("auto", "original")
 

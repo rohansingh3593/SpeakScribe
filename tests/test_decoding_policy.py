@@ -39,11 +39,16 @@ def test_subsecond_finals_do_not_receive_a_prompt():
     assert prompt(sample_count=15_999, language_mode="auto") is None
 
 
-def test_final_hindi_uses_dedicated_hotwords_without_an_initial_prompt():
+def test_final_hindi_rejects_latin_hotwords_to_preserve_devanagari_output():
     assert prompt() is None
-    assert hotwords(final=True, vocabulary=VOCABULARY) == (
+    assert hotwords(final=True, language_mode="hi", vocabulary=VOCABULARY) is None
+
+
+def test_auto_hinglish_uses_dedicated_hotwords_without_an_initial_prompt():
+    assert prompt(language_mode="auto") is None
+    assert hotwords(final=True, language_mode="auto", vocabulary=VOCABULARY) == (
         "PostgreSQL, MongoDB, Jenkins, CPU, RAM")
 
 
 def test_partials_do_not_pay_for_hotword_bias():
-    assert hotwords(final=False, vocabulary=VOCABULARY) is None
+    assert hotwords(final=False, language_mode="auto", vocabulary=VOCABULARY) is None

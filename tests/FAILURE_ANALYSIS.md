@@ -31,13 +31,16 @@ list. Per-case latency was not supplied, so no latency improvement is claimed.
    is now reported only when dropped chunks are observed, and partial merging only when
    duplicated final words are observed.
 4. **Vocabulary sent through the wrong decoder channel.** Technical vocabulary now uses
-   Faster-Whisper's `hotwords` option instead of pretending to be previous transcript.
-   This preserves acoustic decoding while biasing PostgreSQL, MongoDB, Jenkins, CPU,
-   RAM, and other general configured terms.
+   Faster-Whisper's `hotwords` option instead of pretending to be previous transcript,
+   but only for English and automatic code-switching. A follow-up run exposed a
+   regression where Latin hotwords pushed pinned Hindi toward fully romanized output;
+   pinned Hindi therefore receives no Latin hotwords.
 5. **Destructive post-processing.** Evaluation forced all Latin words in Hindi results
-   through ITRANS, corrupting legitimate code-switched terms, and cleanup erased every
-   adjacent repeated word. Evaluation now preserves Whisper's original script and
-   cleanup retains deliberate double words while bounding runs of three or more.
+   through ITRANS without protecting enough legitimate developer vocabulary, while
+   removing conversion entirely exposed outputs such as `Kaam ho gaya`. Hindi script
+   normalization is retained, with a broader general developer vocabulary protected
+   from conversion. Cleanup also retains deliberate double words while bounding runs
+   of three or more.
 
 ## Retest requirements
 

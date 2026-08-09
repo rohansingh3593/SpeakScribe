@@ -64,3 +64,19 @@ def test_devanagari_mode_does_not_retransliterate_existing_hindi(monkeypatch):
         "आज main SQLAlchemy पर काम", "devanagari", ("SQLAlchemy",),
     )
     assert converted == "आज <main> SQLAlchemy पर काम"
+
+
+def test_devanagari_mode_converts_romanized_hindi_but_protects_dev_vocabulary(monkeypatch):
+    fake = ModuleType("indic_transliteration.sanscript")
+    fake.ITRANS = "itrans"
+    fake.DEVANAGARI = "devanagari"
+    fake.transliterate = lambda value, _source, _target: {
+        "Kaam": "काम", "ho": "हो", "gaya": "गया",
+    }.get(value, f"<{value}>")
+    monkeypatch.setitem(sys.modules, "indic_transliteration.sanscript", fake)
+
+    converted = apply_script_mode(
+        "Kaam ho gaya PostgreSQL update run",
+        "devanagari", ("PostgreSQL", "update", "run"),
+    )
+    assert converted == "काम हो गया PostgreSQL update run"

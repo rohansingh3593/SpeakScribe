@@ -22,8 +22,14 @@ def initial_prompt(*, final: bool, sample_count: int, sample_rate: int,
     return ". ".join(parts) or None
 
 
-def hotwords(*, final: bool, vocabulary: tuple[str, ...]) -> str | None:
-    """Return vocabulary bias through Whisper's dedicated hotword channel."""
-    if not final or not vocabulary:
+def hotwords(*, final: bool, language_mode: str,
+             vocabulary: tuple[str, ...]) -> str | None:
+    """Return safe vocabulary bias through Whisper's hotword channel.
+
+    Latin hotwords can flip a Hindi-pinned decode into romanized output even when
+    the acoustics are entirely Devanagari. Preserve them for English and automatic
+    code-switching modes, but never bias a pinned Hindi decode with Latin tokens.
+    """
+    if not final or language_mode == "hi" or not vocabulary:
         return None
     return ", ".join(vocabulary)

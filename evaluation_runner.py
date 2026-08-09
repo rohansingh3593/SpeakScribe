@@ -159,14 +159,14 @@ def status_for_similarity(similarity: float) -> str:
 
 
 def evaluation_language_settings(language: str) -> tuple[str, str]:
-    """Pin monolingual decoding while preserving valid code-switched script."""
+    """Pin monolingual decoding and normalize romanized Hindi to Devanagari."""
     hints = {"English": "en", "Hindi": "hi", "Hinglish": "auto"}
     if language not in hints:
         raise ValueError(f"Unsupported evaluation language: {language}")
-    # Whisper already emits Hindi in Devanagari when pinned to hi. Forcing every
-    # Latin run through ITRANS corrupts legitimate terms such as `run`, CI, and
-    # repository names, so evaluation must assess the original decoder output.
-    return hints[language], "original"
+    # Hindi models can emit a fully romanized transcript (for example "Kaam ho
+    # gaya"). Convert those Hindi words back to the requested script while
+    # apply_script_mode protects the configured technical vocabulary.
+    return hints[language], "devanagari" if language == "Hindi" else "original"
 
 
 def load_wav(path: Path, target_rate: int):

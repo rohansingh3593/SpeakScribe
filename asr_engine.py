@@ -74,7 +74,10 @@ class WhisperEngine:
             language_mode=self.config.language_mode, vocabulary=self.config.vocabulary,
             context=context,
         )
-        vocabulary_bias = hotwords(final=job.final, vocabulary=self.config.vocabulary)
+        vocabulary_bias = hotwords(
+            final=job.final, language_mode=self.config.language_mode,
+            vocabulary=self.config.vocabulary,
+        )
         language = None if self.config.language_mode == "auto" else self.config.language_mode
         prepared = prepare_audio_for_asr(job.audio)
         raw_stats = audio_statistics(job.audio)
