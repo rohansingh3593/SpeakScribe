@@ -12,7 +12,9 @@ import numpy as np
 from faster_whisper import WhisperModel
 from psutil import Process
 
-from app.audio.audio_pipeline import ASRJob, audio_statistics, prepare_audio_for_asr
+from app.audio.audio_pipeline import (
+    ASRJob, audio_normalization_gain, audio_statistics, prepare_audio_for_asr,
+)
 from app.config.settings import AppConfig
 from app.config.decoding_policy import hotwords, initial_prompt, retry_thresholds
 from app.utils.logger import get_logger, log_exception
@@ -83,6 +85,8 @@ class WhisperEngine:
         prepared = prepare_audio_for_asr(job.audio)
         raw_stats = audio_statistics(job.audio)
         prepared_stats = audio_statistics(prepared)
+        normalization_gain = audio_normalization_gain(
+            job.audio - np.mean(job.audio, dtype=np.float64))
         LOGGER.debug(
             "[ASR-INPUT] "
             f"utterance={job.utterance_id} final={job.final} "
@@ -91,7 +95,8 @@ class WhisperEngine:
             f"raw_rms={raw_stats['rms']:.6f} raw_peak={raw_stats['peak']:.6f} "
             f"raw_mean={raw_stats['mean']:.6f} zeros={raw_stats['zero_ratio']:.3f} "
             f"prepared_rms={prepared_stats['rms']:.6f} "
-            f"prepared_peak={prepared_stats['peak']:.6f} finite={prepared_stats['finite']} "
+            f"prepared_peak={prepared_stats['peak']:.6f} gain={normalization_gain:.2f} "
+            f"finite={prepared_stats['finite']} "
             f"language={language or 'auto'} script={self.config.script_mode} "
             f"beam={beam_size} prompt={'yes' if prompt else 'no'} "
             f"hotwords={'yes' if vocabulary_bias else 'no'}"
@@ -209,10 +214,12 @@ class ASRWorker:
         try:
             self.signals.status_changed.emit("Loading speech model…")
             engine = self.model_provider.get(self.config)
-            self.signals.status_changed.emit("🎤 Listening")
-            LOGGER.info("ASR worker ready | model=%s language=%s device=%s",
+            source_label = ("Microphone" if self.config.capture_source == "microphone"
+                            else "System audio")
+            self.signals.status_changed.emit(f"🎤 Listening via {source_label}")
+            LOGGER.info("ASR worker ready | model=%s language=%s device=%s capture=%s",
                         self.config.model_size, self.config.language_mode,
-                        self.config.device)
+                        self.config.device, self.config.capture_source)
             process = Process()
             stop_empty_since = None
             while True:

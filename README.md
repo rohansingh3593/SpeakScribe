@@ -43,10 +43,15 @@ does not stop capture. The adaptive VAD also lowers both start and continuation
 thresholds for quiet microphones; detailed RMS, noise-floor, and effective-threshold
 values remain available in `debug.log` and `modules/audio.log`.
 
-The **Capture** selector defaults to **System audio (legacy)**, which preserves the
-previously working SoundCard path (`default_speaker` → matching loopback device),
-including a three-block warm-up and multichannel-to-mono downmix. Select
-**Microphone** when speech should come directly from the default physical microphone.
+The **Capture** selector defaults to **Microphone** for spoken transcription. Select
+**System audio (legacy)** only when transcribing sound played by the computer; that option
+uses the SoundCard `default_speaker` → matching loopback path. Both sources retain the
+three-block warm-up and multichannel-to-mono downmix.
+
+Before inference, voiced audio is DC-centered and receives bounded gain when its peak is
+low. Silence and tiny background noise are never amplified. The applied gain is recorded
+with the raw/prepared RMS and peak values in `modules/asr.log`, making an empty transcript
+distinguishable from a wrong capture source or an input-level problem.
 
 Live hypotheses and committed final results now share one **Live transcription** view.
 Each callback adds only its new word suffix at the end; existing visible text is never

@@ -7,8 +7,8 @@ import numpy as np
 
 import app.audio.audio_pipeline as audio_pipeline
 from app.audio.audio_pipeline import (
-    AudioCaptureWorker, EnergySpeechDetector, audio_statistics, prepare_audio_for_asr,
-    resample_audio_block, select_capture_device,
+    AudioCaptureWorker, EnergySpeechDetector, audio_normalization_gain, audio_statistics,
+    prepare_audio_for_asr, resample_audio_block, select_capture_device,
 )
 from app.config.settings import AppConfig
 from app.utils.logger import configure_logging
@@ -45,13 +45,27 @@ def test_adaptive_detector_accepts_voice_below_fixed_threshold():
     assert detector.effective_silence_threshold < detector.config.silence_threshold
 
 
-def test_quiet_speech_is_centered_without_amplifying_noise():
+def test_quiet_speech_is_centered_and_safely_amplified_for_whisper():
     time_axis = np.linspace(0, 4 * np.pi, 1600, dtype=np.float32)
     quiet_speech = 0.02 + 0.01 * np.sin(time_axis)
     prepared = prepare_audio_for_asr(quiet_speech)
     assert abs(float(np.mean(prepared))) < 1e-5
-    assert 0.009 < float(np.max(np.abs(prepared))) < 0.011
+    assert 0.14 < float(np.max(np.abs(prepared))) < 0.16
     assert float(np.max(np.abs(prepared))) <= 1.0
+
+
+def test_normalization_does_not_turn_silence_or_tiny_noise_into_speech():
+    silence = np.zeros(1600, dtype=np.float32)
+    tiny_noise = np.full(1600, 0.0005, dtype=np.float32)
+    assert audio_normalization_gain(silence) == 1.0
+    assert audio_normalization_gain(tiny_noise) == 1.0
+    assert np.max(np.abs(prepare_audio_for_asr(tiny_noise))) == 0.0
+
+
+def test_normalization_gain_is_bounded_for_low_volume_capture():
+    low_volume = np.array([-0.005, 0.005], dtype=np.float32)
+    assert audio_normalization_gain(low_volume) == 15.0
+    assert np.isclose(np.max(np.abs(prepare_audio_for_asr(low_volume))), 0.075)
 
 
 def test_native_48khz_capture_is_downsampled_to_16khz():
@@ -98,6 +112,7 @@ def test_capture_batches_backend_reads_and_keeps_frames_after_discontinuity(
     modules = {
         "soundcard": SimpleNamespace(
             default_speaker=lambda: speaker,
+            default_microphone=lambda: microphone,
             get_microphone=lambda **_: microphone,
         ),
         "soundcard.mediafoundation": SimpleNamespace(SoundcardRuntimeWarning=BackendWarning),
@@ -134,9 +149,9 @@ def test_capture_source_matches_legacy_speaker_loopback_and_physical_microphone(
         microphone, "microphone:Microphone", 1)
 
 
-def test_default_capture_settings_preserve_the_proven_legacy_path():
+def test_default_capture_settings_use_physical_microphone_for_spoken_transcription():
     config = AppConfig()
-    assert config.capture_source == "loopback"
+    assert config.capture_source == "microphone"
     assert config.capture_sample_rate == 16_000
     assert config.capture_warmup_blocks == 3
     assert config.capture_warmup_ms == 100

@@ -177,7 +177,7 @@ class MainWindow(QWidget):
         self.language_mode.addItems(["Hindi / Hinglish", "Auto", "English"])
         self.language_mode.setMinimumWidth(155)
         self.capture_source = QComboBox()
-        self.capture_source.addItems(["System audio (legacy)", "Microphone"])
+        self.capture_source.addItems(["Microphone", "System audio (legacy)"])
         self.capture_source.setMinimumWidth(200)
         self.translation_toggle = QCheckBox("Translation")
         self.settings_bar = QWidget()
@@ -354,8 +354,8 @@ class MainWindow(QWidget):
         config = AppConfig(performance_mode=mode,
                            script_mode=self.script.currentText().lower(),
                            language_mode=recognition_modes[self.language_mode.currentText()],
-                           capture_source=("loopback" if self.capture_source.currentIndex() == 0
-                                           else "microphone"),
+                           capture_source=("loopback" if self.capture_source.currentText() ==
+                                           "System audio (legacy)" else "microphone"),
                            translation_enabled=self.translation_toggle.isChecked())
         self.performance_label.setText(f"Performance: {self.performance.currentText()}")
         self.status.setText("Starting…")

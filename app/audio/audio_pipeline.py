@@ -43,12 +43,25 @@ def select_capture_device(soundcard, source: str):
     return device, f"microphone:{device.name}", 1
 
 
+def audio_normalization_gain(audio: np.ndarray, *, minimum_peak: float = 0.002,
+                             target_peak: float = 0.8, maximum_gain: float = 15.0) -> float:
+    """Return bounded gain for voiced audio while refusing to amplify silence."""
+    values = np.asarray(audio, dtype=np.float32)
+    if values.size == 0:
+        return 1.0
+    peak = float(np.max(np.abs(values)))
+    if not np.isfinite(peak) or peak < minimum_peak or peak >= target_peak:
+        return 1.0
+    return min(maximum_gain, target_peak / peak)
+
+
 def prepare_audio_for_asr(audio: np.ndarray) -> np.ndarray:
-    """Remove DC offset without amplifying silence or microphone noise."""
+    """Remove DC offset and safely raise quiet captured speech for Whisper."""
     prepared = np.asarray(audio, dtype=np.float32)
     if prepared.size == 0:
         return prepared
     prepared = prepared - np.mean(prepared, dtype=np.float64)
+    prepared *= audio_normalization_gain(prepared)
     return np.clip(prepared, -1.0, 1.0).astype(np.float32, copy=False)
 
 

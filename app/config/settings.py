@@ -39,9 +39,9 @@ DEFAULT_VOCABULARY = (
 @dataclass
 class AppConfig:
     sample_rate: int = 16_000
-    # The proven legacy Windows path records the default speaker's loopback at
-    # Whisper's native rate. ``microphone`` remains selectable in the GUI.
-    capture_source: str = "loopback"
+    # Spoken transcription should use the physical microphone by default.
+    # Speaker loopback remains available for transcribing system playback.
+    capture_source: str = "microphone"
     capture_sample_rate: int = 16_000
     channels: int = 1
     capture_warmup_blocks: int = 3
