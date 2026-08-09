@@ -22,6 +22,8 @@ def configure_runtime_logging(*, console_level: int = logging.INFO,
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
     for handler in logger.handlers[:]:
+        if getattr(handler, "speakscribe_observability", False):
+            continue
         handler.close()
         logger.removeHandler(handler)
 

@@ -34,7 +34,7 @@ def model_provider():
 
 
 @pytest.mark.parametrize("case", CASES, ids=[case["id"] for case in CASES])
-def test_prerecorded_transcription(case):
+def test_prerecorded_transcription(case, record_test_observation):
     audio = ROOT / case["audio"]
     if not audio.is_file():
         generation = ensure_audio(case, ROOT)
@@ -52,7 +52,8 @@ def test_prerecorded_transcription(case):
             f"INVALID_AUDIO: generation reported success but WAV is missing: {audio}",
             pytrace=False,
         )
-    result = evaluate_case_with_retries(case, ROOT, model_provider(), retries=1)
+    result = record_test_observation(
+        evaluate_case_with_retries(case, ROOT, model_provider(), retries=1))
     assert result.status != "FAIL", (
         f"{result.case_id}: {result.similarity}% WER={result.wer}; "
         f"root_cause={result.root_cause}; expected={result.expected!r}; "

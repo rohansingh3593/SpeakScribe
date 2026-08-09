@@ -22,6 +22,21 @@ Run metadata and unit tests:
 python -m pytest
 ```
 
+Every pytest invocation creates exactly one self-contained directory beneath
+`test_logs/session_YYYY-MM-DD_HH-MM-SS/` (with a collision suffix when necessary).
+`tests/conftest.py` centrally records collection, module/class/test lifecycle,
+setup/call/teardown reports, captured repository output, failures, timing, and session
+shutdown. Use pytest's built-in `--debug` option to mirror detailed diagnostics to the
+console, and `--session-name NAME` to choose a recognizable artifact directory name.
+
+The session contains the chronological `session.log`, concise `summary.log`, technical
+`debug.log`, consolidated `failures.log`, machine-readable `session.json`, separate
+successful/failed module/class/test logs, and central expected/actual/metrics artifacts.
+Speech transcription tests attach their real `EvaluationResult` through the centralized
+`record_test_observation` fixture before asserting, so a failure retains raw transcripts,
+normalization, WER edits, language evidence, timings, traceback, captured logs, suspected
+component, and recommended investigation without changing the test outcome.
+
 Run all available production recordings and generate Markdown, JSON, and CSV reports:
 
 ```bash
