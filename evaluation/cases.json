@@ -1,0 +1,16 @@
+{
+  "cases": [
+    {"id":"english_short","audio":"test_audio/english_01.wav","language":"English","tags":["short","normal"],"expected":"I will review the pull request today."},
+    {"id":"english_technical","audio":"test_audio/english_02.wav","language":"English","tags":["technical","normal"],"expected":"The FastAPI service uses SQLAlchemy and PostgreSQL."},
+    {"id":"english_long_fast","audio":"test_audio/english_03.wav","language":"English","tags":["long","fast"],"expected":"After the Jenkins pipeline finishes I will merge the branch and deploy the Docker image to Kubernetes."},
+    {"id":"hindi_short","audio":"test_audio/hindi_01.wav","language":"Hindi","tags":["short","normal"],"expected":"मुझे आज यह काम पूरा करना है।"},
+    {"id":"hindi_pause","audio":"test_audio/hindi_02.wav","language":"Hindi","tags":["pause","slow"],"expected":"आज मैं पहले कोड की समीक्षा करूंगा और उसके बाद बदलाव जमा करूंगा।"},
+    {"id":"hindi_long","audio":"test_audio/hindi_03.wav","language":"Hindi","tags":["long","fast"],"expected":"हमने डेटाबेस की समस्या ठीक कर दी है और अब नई सेवा परीक्षण के लिए तैयार है।"},
+    {"id":"hinglish_core","audio":"test_audio/hinglish_01.wav","language":"Hinglish","tags":["technical","normal"],"expected":"Today main SQLAlchemy upgrade pe work kar raha hoon and after that I will create the pull request."},
+    {"id":"hinglish_short","audio":"test_audio/hinglish_02.wav","language":"Hinglish","tags":["short","normal"],"expected":"Kal main Jira ticket update karunga."},
+    {"id":"hinglish_pause","audio":"test_audio/hinglish_03.wav","language":"Hinglish","tags":["pause","slow"],"expected":"Pehle API test karte hain and uske baad PR create karenge."},
+    {"id":"hinglish_fast","audio":"test_audio/hinglish_04.wav","language":"Hinglish","tags":["technical","fast"],"expected":"Docker image build hone ke baad Jenkins pipeline Kubernetes deployment start karegi."},
+    {"id":"hinglish_long","audio":"test_audio/hinglish_05.wav","language":"Hinglish","tags":["long","technical"],"expected":"Aaj hum FastAPI aur Pydantic upgrade karenge phir pytest run karke GitHub branch mein commit push karenge."},
+    {"id":"hinglish_noise","audio":"test_audio/hinglish_06.wav","language":"Hinglish","tags":["background-noise","technical"],"expected":"Background noise ke bawajood Redis aur Kafka service ka status check karo."}
+  ]
+}

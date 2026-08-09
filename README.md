@@ -1,5 +1,10 @@
 # 🎙️ Real-Time Hindi, English & Hinglish Speech-to-Text
 
+> **Implementation note:** the repository originally contained this design document only.
+> The current implementation follows it with independent capture, segmentation, ASR,
+> optional translation, and GUI stages. Configuration lives in `config.py`; start with
+> `python main.py`.
+
 A fast, real-time Speech Recognition desktop application built with **Python, PyQt6, SoundCard, and Faster-Whisper**.
 
 The application continuously listens to microphone input and converts speech into text with a focus on **low latency, transcription accuracy, and Hindi/English/Hinglish support**.
@@ -445,6 +450,143 @@ sentencepiece
 
 Exact dependency versions should be maintained in `requirements.txt`.
 
+## Running tests
+
+From the `SpeakScribe` directory, run:
+
+```bash
+python -m pytest
+```
+
+The included `pytest.ini` explicitly adds the repository root to Python's import
+path. `tests/conftest.py` applies the same setup before test collection for
+Windows `pytest.exe`, IDE test runners, and wrappers that override pytest's
+configuration. This keeps top-level application modules such as `audio_pipeline`
+and `text_processing` importable with both `pytest` and `python -m pytest`.
+
+`soundcard` is loaded only when microphone capture starts. Pure NumPy components
+such as `EnergySpeechDetector` can therefore be imported and tested without an
+installed or initialized platform audio backend. Running the application still
+requires all packages from `requirements.txt`.
+
+Likewise, `indic-transliteration` is loaded only when Latin or Devanagari script
+conversion is selected. Language detection, cleanup, and the default `Original`
+script mode do not require the optional transliteration package during import.
+
+For quiet laptop microphone input, the default RMS speech threshold is `0.003`.
+Accepted speech is DC-centered without boosting quiet noise before Whisper inference;
+silence still remains excluded by the RMS detector. Detection logs include the
+measured RMS value so the thresholds can be tuned for a particular microphone.
+
+Whisper begins loading in a background thread as soon as the GUI opens and the
+same model instance is reused across Start/Stop cycles. Live partials run every
+`0.5` seconds with greedy decoding; the selected Fast/Balanced/Accurate profile is
+applied to final correction so partial speed does not sacrifice final accuracy.
+
+The default multilingual model is `base`, which provides materially better Hindi
+accuracy while remaining usable on CPU. Only one pending ASR job is retained, finals
+replace obsolete queued partials, and confidence-filter rejections are logged with
+their no-speech and log-probability values instead of silently producing a blank UI.
+
+The same confidence thresholds are passed into Faster-Whisper itself (not merely
+applied after decoding), preventing its stricter defaults from silently removing
+all segments. Short pauses are bridged for 1.5 seconds, and contextual prompting is
+reserved for finals to avoid prompt-seeded URL/repetition hallucinations in partials.
+
+Recognition defaults to **Hindi / Hinglish**, passing Whisper the stable `hi`
+language hint that short Hindi clips cannot reliably auto-detect while still
+preserving embedded English technical words. The GUI also provides Auto and English
+modes. Common short-audio Whisper outro hallucinations are rejected conservatively.
+
+On Windows, SoundCard now captures Realtek/WASAPI microphones at their common native
+48 kHz rate and downsamples each 30 ms block to Whisper's 16 kHz using NumPy. This
+avoids Media Foundation's unstable live 16 kHz conversion that produced discontinuity
+warnings and corrupted repeated Devanagari/URL output. Corrupt, URL, replacement-
+character, and extreme-repetition hypotheses are filtered before reaching the GUI.
+
+Script conversion is selective: Devanagari mode leaves Whisper's existing Hindi
+characters untouched and converts only Latin words, while Latin mode converts only
+Devanagari runs. Technical terms remain protected. Speech start additionally requires
+three consecutive energetic frames, and the higher continuation threshold allows
+the buffer to close during real microphone silence instead of decoding steady noise.
+
+## Prerecorded accuracy evaluation
+
+`tests/expected/transcripts.json` defines the reusable English, Hindi, and Hinglish
+validation corpus. Record the corresponding WAV files under `tests/speech_cases/`,
+then run:
+
+```bash
+python evaluation_runner.py
+```
+
+The evaluator uses the same Faster-Whisper engine and audio conversion path as the
+application. It writes Markdown, JSON, and CSV files under `tests/results/`, including
+normalized word error rate, combined word/sequence similarity, language detection,
+missing/extra/substituted/duplicated words, technical-term failures, inference time,
+and real-time factor. Similarity of at least 90% is excellent, 80–89.99% passes,
+60–79.99% warns, and less than 60% fails. Missing WAV files are explicit and make
+the command exit with status 2; no synthetic transcript is presented as a real ASR
+result.
+
+Missing validation WAVs are generated independently from expected text using Windows
+SAPI, macOS `say`, or `espeak-ng`/`espeak`, then transformed deterministically using
+their audio profiles. Existing human recordings are never overwritten. Synthetic and
+human sources are labeled and summarized separately. Run `python
+tests/run_speech_suite.py` for generation followed by all ASR evaluation and reports.
+Generated assets are validated for WAV structure, duration, sample rate conversion,
+and non-silent RMS before ASR runs. Deterministic seed 42 drives noise/office/fan/
+keyboard transforms, while metadata controls rate, volume, and silence. TTS failures
+remain infrastructure errors rather than being counted as failed recognition.
+
+The comprehensive suite is stored in `tests/expected/transcripts.json`: exactly 120
+cases across 30 scenarios, with four distinct English/Hindi/Hinglish/edge variations
+per scenario. Recordings belong in the tracked `tests/speech_cases/01_normal` through
+`30_combined` folders. `python evaluation_runner.py` now defaults to this suite and
+generates Markdown, JSON, and CSV reports under `tests/results/`, including scenario,
+language, difficulty, technical-term, number, latency, partial-update, top-error, and
+root-cause analyses. The 120 production pytest cases are mandatory and never skipped;
+see `tests/README.md` for the command and recording requirements.
+
+## Root-cause diagnostics
+
+The runtime log now records one-second `[AUDIO]` capture statistics, `[VAD]`
+threshold decisions, queue submissions/evictions, `[ASR-INPUT]` levels before and
+after preprocessing, every raw Whisper segment and confidence value, each cleanup
+stage, and `[GUI]` signal delivery. This identifies whether blank output originates
+in microphone capture, speech detection, queueing, Whisper, filtering, script
+conversion, or Qt delivery.
+
+For a reproducible audio-level diagnosis, start the application with debug WAV
+capture enabled:
+
+```powershell
+$env:SPEAKSCRIBE_DEBUG_AUDIO="1"
+python main.py
+```
+
+Every finalized utterance then writes both raw and prepared 16 kHz WAV files under
+`debug_audio/`. Speak one sentence, stop listening, and compare those two files. Do
+not share them publicly if they contain private speech. Debug WAV capture is disabled
+by default, and runtime logs contain measurements/transcripts but never audio samples.
+
+Interpret the diagnostic prefixes in order:
+
+1. `[AUDIO] asr_rms` near zero or a high `zeros` ratio indicates capture/device data.
+2. `[VAD] rms_max` below `start_threshold` explains why no utterance opens.
+3. Missing `[QUEUE]` lines after `speaking=True` identifies segmentation timing.
+4. `[ASR-INPUT]` compares raw and DC-centered audio reaching Whisper.
+5. `[ASR-SEGMENT]` shows the model's unmodified text and confidence values.
+6. `[ASR-TEXT]` shows whether confidence, corruption, or script processing emptied it.
+7. A nonempty `[ASR-TEXT] post_script` without `[GUI]` identifies Qt delivery.
+
+The diagnostics identified three concrete causes in the supplied run: partial jobs
+were created from buffers containing too little voiced speech, preprocessing boosted
+those mostly-silent buffers by up to 10x, and post-filtering accepted Whisper segments
+with compression ratios above 20. Audio preprocessing now only removes DC offset,
+partial/final eligibility uses accumulated active-speech time, compression ratio is
+enforced after decoding, and final prompts require at least three seconds of audio.
+
 ---
 
 # 🚀 Running the Application
@@ -456,6 +598,9 @@ python main.py
 ```
 
 The application will initialize the speech-recognition model and display the PyQt6 interface.
+
+Model preload alone does not start microphone capture. Click **Start Listening**;
+otherwise shutdown logs explicitly state that no listening/transcription session ran.
 
 Click:
 
