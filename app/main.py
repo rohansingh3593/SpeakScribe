@@ -9,10 +9,11 @@ import signal
 import sys
 import time
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton,
-    QTextEdit, QVBoxLayout, QWidget,
+    QPlainTextEdit, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from app.asr.asr_engine import ASRWorker, WhisperModelProvider
@@ -22,7 +23,7 @@ from app.utils.logger import (
     configure_logging, emit_status, get_logger, get_output_path, log_exception, log_print,
 )
 from app.processing.translation import TranslationWorker
-from app.processing.text_processing import incremental_transcript_delta
+from app.processing.text_processing import format_recording_time, incremental_transcript_delta
 
 
 class SpeechSignals(QObject):
@@ -148,6 +149,10 @@ class MainWindow(QWidget):
         self.controller = SpeechController(self.signals)
         self.final_history: list[str] = []
         self.ever_started = False
+        self.record_started_at: float | None = None
+        self.record_timer = QTimer(self)
+        self.record_timer.setInterval(250)
+        self.record_timer.timeout.connect(self._update_record_timer)
         self._build_ui()
         self._connect_signals()
         self.controller.preload_model()
@@ -156,8 +161,6 @@ class MainWindow(QWidget):
         self.status = QLabel("Ready")
         self.language = QLabel("Language: —")
         self.performance_label = QLabel("Performance: Balanced")
-        self.transcription = QTextEdit()
-        self.transcription.setReadOnly(True)
         self.translation = QTextEdit()
         self.translation.setReadOnly(True)
         self.translation.setMaximumHeight(80)
@@ -184,29 +187,142 @@ class MainWindow(QWidget):
         controls.addWidget(self.capture_source)
         controls.addWidget(self.translation_toggle)
 
-        self.start_button = QPushButton("Start Listening")
-        self.stop_button = QPushButton("Stop Listening")
-        self.stop_button.setEnabled(False)
-        clear = QPushButton("Clear")
-        copy = QPushButton("Copy")
-        buttons = QHBoxLayout()
-        for button in (self.start_button, self.stop_button, clear, copy):
-            buttons.addWidget(button)
-        self.start_button.clicked.connect(self.start_listening)
-        self.stop_button.clicked.connect(self.stop_listening)
-        clear.clicked.connect(self.clear_text)
-        copy.clicked.connect(lambda: QApplication.clipboard().setText(
-            self.transcription.toPlainText()))
+        self._build_recording_bar()
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.status)
         layout.addWidget(self.language)
         layout.addWidget(self.performance_label)
         layout.addLayout(controls)
-        layout.addWidget(QLabel("Live transcription:"))
-        layout.addWidget(self.transcription)
+        layout.addWidget(self.record_output_container, alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.translation)
-        layout.addLayout(buttons)
+
+    def _build_recording_bar(self) -> None:
+        """Build the compact timer/button/output panel used for live recording."""
+        log_print("[SpeakScribeUI] Creating recording panel")
+        self.record_timer_label = QLabel("00:00")
+        self.record_timer_label.setStyleSheet(
+            "color: white; font-weight: bold; font-size: 14px;")
+
+        self.record_output_container = QWidget()
+        self.record_output_container.setObjectName("recordOutputPanel")
+        self.record_output_container.setMinimumWidth(620)
+        self.record_output_container.setMaximumWidth(760)
+        self.record_output_container.setFixedHeight(300)
+        self.record_output_container.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.record_output_container.setStyleSheet(
+            "#recordOutputPanel { background: #20242b; border: 1px solid #3b414b; "
+            "border-radius: 8px; } QPushButton { min-height: 25px; }")
+
+        outer_layout = QVBoxLayout(self.record_output_container)
+        outer_layout.setContentsMargins(10, 8, 10, 8)
+        outer_layout.setSpacing(6)
+        top_row = QHBoxLayout()
+        top_row.setSpacing(12)
+        button_layout = QVBoxLayout()
+        button_layout.setSpacing(3)
+        button_layout.addWidget(self.record_timer_label)
+        button_layout.addSpacing(5)
+
+        self.btn_record_start = QPushButton("🎤")
+        self.btn_record_stop = QPushButton("⛔")
+        self.btn_record_clear = QPushButton("🧹")
+        self.btn_lang_eng = QPushButton("Eng")
+        self.btn_lang_hin = QPushButton("Hin")
+        self.btn_lang_hing = QPushButton("Hing")
+        self.btn_copy_transcript = QPushButton("📋 Copy")
+        self.btn_record_start.setToolTip("Start live transcription")
+        self.btn_record_stop.setToolTip("Stop live transcription")
+        self.btn_record_clear.setToolTip("Clear transcription")
+        self.btn_copy_transcript.setToolTip("Copy all transcription")
+
+        for action, language_button in (
+                (self.btn_record_start, self.btn_lang_eng),
+                (self.btn_record_stop, self.btn_lang_hin),
+                (self.btn_record_clear, self.btn_lang_hing)):
+            row = QHBoxLayout()
+            row.setSpacing(4)
+            row.addWidget(action)
+            row.addWidget(language_button)
+            button_layout.addLayout(row)
+        button_layout.addSpacing(6)
+        button_layout.addWidget(self.btn_copy_transcript)
+        button_layout.addStretch()
+
+        self.record_output = QPlainTextEdit()
+        self.transcription = self.record_output  # compatibility for existing callbacks
+        font = QFont()
+        font.setPointSize(12)
+        font.setBold(True)
+        self.record_output.setFont(font)
+        self.record_output.setPlaceholderText("Live transcription will appear here...")
+        self.record_output.setStyleSheet(
+            "QPlainTextEdit { color: #f5f7fa; background: transparent; "
+            "selection-background-color: #426a9b; }")
+        self.record_output.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse |
+            Qt.TextInteractionFlag.TextSelectableByKeyboard)
+        self.record_output.setFrameShape(QPlainTextEdit.Shape.NoFrame)
+        self.record_output.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.record_output.viewport().setAttribute(
+            Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.record_output.setCursor(Qt.CursorShape.ArrowCursor)
+        self.record_output.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+        self.record_output.setCursorWidth(0)
+        self.record_output.setReadOnly(True)
+        self.record_output.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.record_output.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        top_row.addLayout(button_layout, stretch=1)
+        top_row.addWidget(self.record_output, stretch=5)
+        outer_layout.addLayout(top_row)
+
+        self.record_move_bar = QWidget()
+        move_layout = QHBoxLayout(self.record_move_bar)
+        move_layout.setContentsMargins(0, 4, 0, 0)
+        self.btn_record_move = QPushButton("Move")
+        self.btn_record_move.setFixedSize(325, 25)
+        self.btn_record_move.pressed.connect(self._start_system_move)
+        move_layout.addStretch()
+        move_layout.addWidget(self.btn_record_move)
+        outer_layout.addWidget(self.record_move_bar)
+
+        self.start_button = self.btn_record_start
+        self.stop_button = self.btn_record_stop
+        self.stop_button.setEnabled(False)
+        self.start_button.clicked.connect(self.start_listening)
+        self.stop_button.clicked.connect(self.stop_listening)
+        self.btn_record_clear.clicked.connect(self.clear_text)
+        self.btn_copy_transcript.clicked.connect(lambda: QApplication.clipboard().setText(
+            self.transcription.toPlainText()))
+        self.btn_lang_eng.clicked.connect(lambda: self._select_language("English"))
+        self.btn_lang_hin.clicked.connect(lambda: self._select_language("Hindi / Hinglish"))
+        self.btn_lang_hing.clicked.connect(lambda: self._select_language("Auto"))
+        self.language_mode.currentTextChanged.connect(self._sync_language_buttons)
+        self._sync_language_buttons()
+
+    def _select_language(self, label: str) -> None:
+        self.language_mode.setCurrentText(label)
+        self._sync_language_buttons()
+
+    def _sync_language_buttons(self, *_args) -> None:
+        selected = self.language_mode.currentText()
+        self.btn_lang_eng.setEnabled(selected != "English")
+        self.btn_lang_hin.setEnabled(selected != "Hindi / Hinglish")
+        self.btn_lang_hing.setEnabled(selected != "Auto")
+
+    def _start_system_move(self) -> None:
+        handle = self.windowHandle()
+        if handle is not None and hasattr(handle, "startSystemMove"):
+            handle.startSystemMove()
+
+    def _update_record_timer(self) -> None:
+        if self.record_started_at is None:
+            return
+        self.record_timer_label.setText(format_recording_time(
+            time.monotonic() - self.record_started_at))
 
     def _connect_signals(self) -> None:
         self.signals.partial_text.connect(self.show_partial)
@@ -236,11 +352,16 @@ class MainWindow(QWidget):
         self.performance.setEnabled(False)
         self.script.setEnabled(False)
         self.language_mode.setEnabled(False)
+        for button in (self.btn_lang_eng, self.btn_lang_hin, self.btn_lang_hing):
+            button.setEnabled(False)
         self.capture_source.setEnabled(False)
         self.translation_toggle.setEnabled(False)
         self.translation.setVisible(config.translation_enabled)
         for update in self.controller.start_stream(config):
             self.status.setText(update.message)
+        self.record_started_at = time.monotonic()
+        self.record_timer_label.setText("00:00")
+        self.record_timer.start()
 
     def stop_listening(self) -> None:
         self.status.setText("Stopping…")
@@ -251,8 +372,11 @@ class MainWindow(QWidget):
         self.performance.setEnabled(True)
         self.script.setEnabled(True)
         self.language_mode.setEnabled(True)
+        self._sync_language_buttons()
         self.capture_source.setEnabled(True)
         self.translation_toggle.setEnabled(True)
+        self.record_timer.stop()
+        self._update_record_timer()
 
     def add_final(self, text: str) -> None:
         log_print(f"[GUI] final signal received chars={len(text)} text={text!r}")

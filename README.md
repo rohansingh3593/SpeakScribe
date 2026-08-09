@@ -55,6 +55,12 @@ begin after roughly 0.8 seconds of captured speech and refresh at most every 0.4
 the bounded ASR queue still replaces stale partial work so final results remain the
 priority on CPU fallback.
 
+The recording UI uses a compact panel with an elapsed timer and paired recording/language
+buttons on the left, a selectable append-only transcript on the right, Copy and Clear
+actions, and a bottom **Move** handle. The language shortcuts map to English,
+Hindi/Hinglish, and automatic recognition while preserving the detailed configuration
+controls above the panel.
+
 The application continuously listens to microphone input and converts speech into text with a focus on **low latency, transcription accuracy, and Hindi/English/Hinglish support**.
 
 It is designed to handle natural code-switching between Hindi and English while preserving technical terms such as Python, SQLAlchemy, FastAPI, Jenkins, Docker, GitHub, Jira, and Pull Request.

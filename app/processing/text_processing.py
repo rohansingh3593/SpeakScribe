@@ -15,6 +15,13 @@ HINGLISH_WORDS = {
 }
 
 
+def format_recording_time(seconds: float) -> str:
+    """Format a monotonic recording duration for the compact UI timer."""
+    total = max(0, int(seconds))
+    minutes, remaining_seconds = divmod(total, 60)
+    return f"{minutes:02d}:{remaining_seconds:02d}"
+
+
 def incremental_transcript_delta(existing: str, candidate: str) -> str:
     """Return only words not already present at the end of the live stream."""
     old_words = existing.split()

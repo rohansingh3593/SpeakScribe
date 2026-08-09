@@ -2,7 +2,8 @@ import sys
 from types import ModuleType
 
 from app.processing.text_processing import (
-    apply_script_mode, clean_text, detect_language, incremental_transcript_delta,
+    apply_script_mode, clean_text, detect_language, format_recording_time,
+    incremental_transcript_delta,
     is_low_quality_text,
     remove_history_overlap,
 )
@@ -11,6 +12,13 @@ from app.processing.text_processing import (
 def test_hinglish_detection():
     text = "Today main SQLAlchemy upgrade pe work kar raha hoon"
     assert detect_language(text, "hi") == "Hinglish"
+
+
+def test_recording_timer_formats_boundaries_without_negative_time():
+    assert format_recording_time(-1) == "00:00"
+    assert format_recording_time(59.9) == "00:59"
+    assert format_recording_time(60) == "01:00"
+    assert format_recording_time(3661) == "61:01"
 
 
 def test_hindi_and_english_detection():
