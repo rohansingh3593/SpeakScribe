@@ -87,7 +87,7 @@ synthetic audio while retaining human recordings:
 ```powershell
 python -m pip install -r requirements.txt
 python -c "from faster_whisper import WhisperModel; print('faster-whisper ready')"
-python -m pytest -q tests/test_audio_generation.py tests/test_validation_manifest.py tests/test_evaluation.py tests/test_text_processing.py
+python -m pytest -q tests/integration/test_audio_generation.py tests/unit/test_validation_manifest.py tests/unit/test_evaluation.py tests/unit/test_text_processing.py
 python tests/run_speech_suite.py --cleanup-after generated
 ```
 
@@ -158,7 +158,7 @@ python tests/generate_test_audio.py --remove-all
 Run every mandatory, manifest-driven parametrized ASR regression:
 
 ```powershell
-python -m pytest tests/test_transcription.py
+python -m pytest tests/speech/test_transcription.py
 ```
 
 There is no opt-in flag and no skip path. Pytest always collects every manifest case. Every

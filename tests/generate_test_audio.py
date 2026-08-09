@@ -8,13 +8,13 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tests.audio_generation import (
+from evaluation.audio_generation import (
     MANIFEST_PATH,
     generate_all,
     list_windows_voices,
     remove_test_audio,
 )
-from tests.manifest_policy import load_manifest
+from evaluation.manifest_policy import load_manifest
 
 
 def main() -> int:

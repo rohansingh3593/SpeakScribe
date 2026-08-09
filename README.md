@@ -2,8 +2,22 @@
 
 > **Implementation note:** the repository originally contained this design document only.
 > The current implementation follows it with independent capture, segmentation, ASR,
-> optional translation, and GUI stages. Configuration lives in `config.py`; start with
+> optional translation, and GUI stages. Configuration lives in `app/config/settings.py`; start with
 > `python main.py`.
+
+## Project layout
+
+Production code is organized by responsibility under `app/`: ASR inference lives in
+`app/asr/`, capture and VAD in `app/audio/`, configuration and decoding policy in
+`app/config/`, text and translation in `app/processing/`, and shared logging in
+`app/utils/`. Evaluation code is isolated in the `evaluation/` package. Tests are split
+into `tests/unit/`, `tests/integration/`, and the manifest-driven suite in
+`tests/speech/`; shared test infrastructure remains at `tests/`.
+
+The root `main.py` and `evaluation_runner.py` files are intentionally tiny compatibility
+launchers, so existing commands keep working without duplicating implementation. Static
+sample audio belongs under `data/`, while generated pytest sessions remain in ignored
+`test_logs/`.
 
 A fast, real-time Speech Recognition desktop application built with **Python, PyQt6, SoundCard, and Faster-Whisper**.
 
@@ -566,7 +580,7 @@ python main.py
 ```
 
 Every finalized utterance then writes both raw and prepared 16 kHz WAV files under
-`debug_audio/`. Speak one sentence, stop listening, and compare those two files. Do
+`data/debug_audio/`. Speak one sentence, stop listening, and compare those two files. Do
 not share them publicly if they contain private speech. Debug WAV capture is disabled
 by default, and runtime logs contain measurements/transcripts but never audio samples.
 
@@ -789,45 +803,30 @@ Actual latency depends on hardware, model size, audio quality, and configuration
 
 ---
 
-# 📁 Suggested Project Structure
+# 📁 Project Structure
 
 ```text
-speech-to-text/
-│
+SpeakScribe/
+├── app/
+│   ├── main.py
+│   ├── asr/asr_engine.py
+│   ├── audio/audio_pipeline.py
+│   ├── config/{settings.py,decoding_policy.py}
+│   ├── processing/{text_processing.py,translation.py}
+│   └── utils/logger.py
+├── evaluation/evaluation_runner.py
+├── data/test_audio/
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   ├── speech/
+│   ├── regression/
+│   └── fixtures/
 ├── main.py
-├── config.py
-├── logger.py
-├── requirements.txt
-├── README.md
-│
-├── audio/
-│   ├── __init__.py
-│   ├── microphone.py
-│   ├── speech_detector.py
-│   └── audio_buffer.py
-│
-├── asr/
-│   ├── __init__.py
-│   ├── whisper_engine.py
-│   └── language_detector.py
-│
-├── processing/
-│   ├── __init__.py
-│   ├── text_cleaner.py
-│   ├── transliterator.py
-│   └── translator.py
-│
-├── ui/
-│   ├── __init__.py
-│   └── main_window.py
-│
-└── tests/
-    ├── test_language_detector.py
-    ├── test_text_cleaner.py
-    └── test_audio_buffer.py
+├── evaluation_runner.py
+├── pytest.ini
+└── requirements.txt
 ```
-
-The exact structure may differ depending on the existing implementation.
 
 ---
 

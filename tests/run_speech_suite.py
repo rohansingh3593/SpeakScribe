@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from evaluation_runner import format_duration
+from evaluation.evaluation_runner import format_duration
 
 
 def missing_asr_dependencies() -> list[str]:
@@ -83,7 +83,7 @@ def main(argv=None) -> int:
             else:
                 stage_started = time.perf_counter()
                 info("[Stage 2/3] Running ASR evaluations and writing reports...")
-                command = [sys.executable, "evaluation_runner.py", "--no-generate"]
+                command = [sys.executable, "-m", "evaluation.evaluation_runner", "--no-generate"]
                 if args.debug:
                     command.append("--debug")
                 if args.quiet:
