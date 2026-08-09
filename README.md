@@ -22,6 +22,15 @@ sample audio belongs under `data/`, while generated pytest sessions remain in ig
 
 A fast, real-time Speech Recognition desktop application built with **Python, PyQt6, SoundCard, and Faster-Whisper**.
 
+## Reusable library
+
+The UI-independent implementation is installable from `src/voice_to_text` with
+`pip install .` or `pip install -e .`. Its public API exports `SpeechToText`,
+`SpeechConfig`, `TranscriptionResult`, and library-specific exceptions. It contains no
+Tkinter or PyQt imports; the desktop and Tkinter consumers remain outside the package.
+See [VOICE_TO_TEXT.md](VOICE_TO_TEXT.md) and `examples/` for one-shot, continuous CLI,
+and thread-safe Tkinter usage.
+
 ### Runtime logging and live status
 
 `python main.py` shows INFO and higher messages, while `python main.py --debug` also
