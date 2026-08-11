@@ -2,10 +2,80 @@
 
 > **Implementation note:** the repository originally contained this design document only.
 > The current implementation follows it with independent capture, segmentation, ASR,
-> optional translation, and GUI stages. Configuration lives in `config.py`; start with
+> optional translation, and GUI stages. Configuration lives in `app/config/settings.py`; start with
 > `python main.py`.
 
+## Project layout
+
+Production code is organized by responsibility under `app/`: ASR inference lives in
+`app/asr/`, capture and VAD in `app/audio/`, configuration and decoding policy in
+`app/config/`, text and translation in `app/processing/`, and shared logging in
+`app/utils/`. Evaluation code is isolated in the `evaluation/` package. Tests are split
+into `tests/unit/`, `tests/integration/`, and the manifest-driven suite in
+`tests/speech/`; shared test infrastructure remains at `tests/`.
+
+The root `main.py` and `evaluation_runner.py` files are intentionally tiny compatibility
+launchers, so existing commands keep working without duplicating implementation. Static
+sample audio belongs under `data/`, while generated pytest sessions remain in ignored
+`test_logs/`. Application executions write separate structured sessions under ignored
+`logs/`.
+
 A fast, real-time Speech Recognition desktop application built with **Python, PyQt6, SoundCard, and Faster-Whisper**.
+
+## Reusable library
+
+The UI-independent implementation is installable from `src/speakscribe` with
+`pip install .` or `pip install -e .`. Its public API exports `SpeechToText`,
+`SpeechConfig`, `TranscriptionResult`, and library-specific exceptions. It contains no
+Tkinter or PyQt imports; the desktop and Tkinter consumers remain outside the package.
+See [SPEAKSCRIBE.md](SPEAKSCRIBE.md) and `examples/` for one-shot, continuous CLI,
+thread-safe Tkinter usage, and a complete PyQt compact recording-panel example matching
+the timer, paired controls, transcript area, action sections, and Move bar layout.
+
+### Runtime logging and live status
+
+`python main.py` shows INFO and higher messages, while `python main.py --debug` also
+shows DEBUG diagnostics. Both modes always persist full detail in a unique
+`logs/session_TIMESTAMP/` directory containing `session.log`, `debug.log`, `errors.log`,
+plus component files under `modules/` and optional repository-specific files under
+`repos/`. Old sessions are retention-limited by the centralized logger.
+
+Long-running orchestration can use `emit_status()` and `stream_status()` from
+`app.utils.logger`: every status is logged once and yielded immediately to its caller.
+Existing synchronous APIs remain available; `SpeechController.start_stream()` is the
+streaming wrapper used by the GUI without changing `SpeechController.start()`.
+
+Microphone startup now reports the selected device, successful first capture block,
+voice start, completed utterance, and ASR queue handoff. On Windows, capture reads are
+batched before being split back into 30 ms VAD frames, which reduces Media Foundation
+`data discontinuity` events. A discontinuity is logged as a recoverable warning and
+does not stop capture. The adaptive VAD also lowers both start and continuation
+thresholds for quiet microphones; detailed RMS, noise-floor, and effective-threshold
+values remain available in `debug.log` and `modules/audio.log`.
+
+The **Capture** selector defaults to **Microphone** for spoken transcription. Select
+**System audio (legacy)** only when transcribing sound played by the computer; that option
+uses the SoundCard `default_speaker` → matching loopback path. Both sources retain the
+three-block warm-up and multichannel-to-mono downmix.
+
+Before inference, voiced audio is DC-centered and receives bounded gain when its peak is
+low. Silence and tiny background noise are never amplified. The applied gain is recorded
+with the raw/prepared RMS and peak values in `modules/asr.log`, making an empty transcript
+distinguishable from a wrong capture source or an input-level problem.
+
+Live hypotheses and committed final results now share one **Live transcription** view.
+Each callback adds only its new word suffix at the end; existing visible text is never
+cleared or replaced, and final callbacks end the utterance with a new line. Rolling partials
+begin after roughly 0.8 seconds of captured speech and refresh at most every 0.4 seconds;
+the bounded ASR queue still replaces stale partial work so final results remain the
+priority on CPU fallback.
+
+The recording UI uses a compact panel with an elapsed timer and paired recording/language
+buttons on the left, a selectable append-only transcript on the right, Copy and Clear
+actions, and a bottom **Move** handle. The language shortcuts map to English,
+Hindi/Hinglish, and automatic recognition. Performance, Script, Recognition, Capture,
+and Translation controls are integrated into a light settings strip at the top of the
+same recording panel instead of occupying a separate layout outside it.
 
 The application continuously listens to microphone input and converts speech into text with a focus on **low latency, transcription accuracy, and Hindi/English/Hinglish support**.
 
@@ -539,13 +609,13 @@ and non-silent RMS before ASR runs. Deterministic seed 42 drives noise/office/fa
 keyboard transforms, while metadata controls rate, volume, and silence. TTS failures
 remain infrastructure errors rather than being counted as failed recognition.
 
-The comprehensive suite is stored in `tests/expected/transcripts.json`: exactly 120
-cases across 30 scenarios, with four distinct English/Hindi/Hinglish/edge variations
+The comprehensive suite is stored in `tests/expected/transcripts.json`: a 120-case
+baseline across 30 scenarios, with four distinct English/Hindi/Hinglish/edge variations
 per scenario. Recordings belong in the tracked `tests/speech_cases/01_normal` through
 `30_combined` folders. `python evaluation_runner.py` now defaults to this suite and
 generates Markdown, JSON, and CSV reports under `tests/results/`, including scenario,
 language, difficulty, technical-term, number, latency, partial-update, top-error, and
-root-cause analyses. The 120 production pytest cases are mandatory and never skipped;
+root-cause analyses. Every configured production pytest case is mandatory and never skipped;
 see `tests/README.md` for the command and recording requirements.
 
 ## Root-cause diagnostics
@@ -566,7 +636,7 @@ python main.py
 ```
 
 Every finalized utterance then writes both raw and prepared 16 kHz WAV files under
-`debug_audio/`. Speak one sentence, stop listening, and compare those two files. Do
+`data/debug_audio/`. Speak one sentence, stop listening, and compare those two files. Do
 not share them publicly if they contain private speech. Debug WAV capture is disabled
 by default, and runtime logs contain measurements/transcripts but never audio samples.
 
@@ -789,45 +859,30 @@ Actual latency depends on hardware, model size, audio quality, and configuration
 
 ---
 
-# 📁 Suggested Project Structure
+# 📁 Project Structure
 
 ```text
-speech-to-text/
-│
+SpeakScribe/
+├── app/
+│   ├── main.py
+│   ├── asr/asr_engine.py
+│   ├── audio/audio_pipeline.py
+│   ├── config/{settings.py,decoding_policy.py}
+│   ├── processing/{text_processing.py,translation.py}
+│   └── utils/logger.py
+├── evaluation/evaluation_runner.py
+├── data/test_audio/
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   ├── speech/
+│   ├── regression/
+│   └── fixtures/
 ├── main.py
-├── config.py
-├── logger.py
-├── requirements.txt
-├── README.md
-│
-├── audio/
-│   ├── __init__.py
-│   ├── microphone.py
-│   ├── speech_detector.py
-│   └── audio_buffer.py
-│
-├── asr/
-│   ├── __init__.py
-│   ├── whisper_engine.py
-│   └── language_detector.py
-│
-├── processing/
-│   ├── __init__.py
-│   ├── text_cleaner.py
-│   ├── transliterator.py
-│   └── translator.py
-│
-├── ui/
-│   ├── __init__.py
-│   └── main_window.py
-│
-└── tests/
-    ├── test_language_detector.py
-    ├── test_text_cleaner.py
-    └── test_audio_buffer.py
+├── evaluation_runner.py
+├── pytest.ini
+└── requirements.txt
 ```
-
-The exact structure may differ depending on the existing implementation.
 
 ---
 

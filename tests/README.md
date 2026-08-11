@@ -1,11 +1,13 @@
-# 120-case speech validation suite
+# Extensible speech validation suite
 
 The binding diagnostic principles are documented in
 [`TESTING_PHILOSOPHY.md`](TESTING_PHILOSOPHY.md). Tests intentionally seek breaking
 points; expected transcripts and thresholds must not be changed to chase a pass rate.
+The current grouped Hindi failure investigation and honest retest requirements are in
+[`FAILURE_ANALYSIS.md`](FAILURE_ANALYSIS.md).
 
-`expected/transcripts.json` contains 30 scenarios with four genuinely different
-variations each. The tracked `speech_cases/01_normal` through
+`expected/transcripts.json` starts with a 120-case baseline: 30 scenarios with four
+genuinely different variations each. It is a minimum, not a fixed suite size. The tracked `speech_cases/01_normal` through
 `speech_cases/30_combined` directories are the stable destinations for recordings.
 
 Record the specified sentence and conditions for each case, preserving its filename.
@@ -19,6 +21,24 @@ Run metadata and unit tests:
 ```bash
 python -m pytest
 ```
+
+Every pytest invocation creates exactly one self-contained directory beneath
+`test_logs/session_YYYY-MM-DD_HH-MM-SS/` (with a collision suffix when necessary).
+`tests/conftest.py` centrally records collection, module/class/test lifecycle,
+setup/call/teardown reports, captured repository output, failures, timing, and session
+shutdown. Use pytest's built-in `--debug` option to mirror detailed diagnostics to the
+console, and `--session-name NAME` to choose a recognizable artifact directory name.
+
+The session contains the chronological `session.log`, concise `summary.log`, technical
+`debug.log`, consolidated `failures.log`, machine-readable `session.json`, separate
+successful/failed module/class/test logs, and central expected/actual/metrics artifacts.
+Speech transcription tests attach their real `EvaluationResult` through the centralized
+`record_test_observation` fixture before asserting, so a failure retains raw transcripts,
+normalization, WER edits, language evidence, timings, traceback, captured logs, suspected
+component, and recommended investigation without changing the test outcome.
+
+Application/runtime sessions are separate under `logs/session_TIMESTAMP/`; pytest never
+mixes its evidence with runtime application logs.
 
 Run all available production recordings and generate Markdown, JSON, and CSV reports:
 
@@ -40,29 +60,54 @@ The one-command generation → validation → ASR → report workflow is:
 python tests/run_speech_suite.py
 ```
 
-Recommended sequence to run all 120 cases, write reports, and then remove only
+The default console is a compact test-runner view: each case shows its language,
+scenario, accuracy, WER, duration, moving-average ETA, and current PASS/WARNING/FAIL
+totals. Technical audio, model, transcript, resource, and timing diagnostics are kept
+in the timestamped file under `logs/` without flooding the terminal. Use `--debug` to
+also show those diagnostics on the console, `--quiet` for errors plus the final summary,
+or `--log-level LEVEL` for an explicit standard Python logging level. Every run writes
+`logs/latest.log`, a timestamped complete log, and a warning/failure-only log beneath
+`logs/errors/`.
+
+ETA remains `calculating...` until three cases have completed, then uses the most recent
+ten case durations so that an unusually fast or slow first case does not dominate it.
+Tests over the configurable five-second default are marked `SLOW` but retain their
+accuracy status. Ctrl+C saves the collected results as an `interrupted_report_*` set.
+
+## Growing the suite
+
+The first 120 entries are the preserved baseline, not a ceiling. Add a case when it
+protects a distinct feature, interaction, boundary, production failure, or regression.
+Every entry after the baseline must include `reason`, `feature`, and `type` metadata;
+supported types are declared in the manifest growth policy. New cases are collected
+automatically by both pytest and the evaluation runner, and progress totals are derived
+from the manifest rather than hardcoded. Do not relax comparison thresholds, rewrite an
+expected transcript, or add test-only recognition behavior to turn a useful failure green.
+
+Recommended sequence to run every configured case, write reports, and then remove only
 synthetic audio while retaining human recordings:
 
 ```powershell
 python -m pip install -r requirements.txt
 python -c "from faster_whisper import WhisperModel; print('faster-whisper ready')"
-python -m pytest -q tests/test_audio_generation.py tests/test_validation_manifest.py tests/test_evaluation.py tests/test_text_processing.py
+python -m pytest -q tests/integration/test_audio_generation.py tests/unit/test_validation_manifest.py tests/unit/test_evaluation.py tests/unit/test_text_processing.py
 python tests/run_speech_suite.py --cleanup-after generated
 ```
 
 Always use `python -m pip`, not a bare `pip`, so packages are installed into the same
 virtual environment that runs the suite. A missing ASR dependency now stops once with
-`ASR_DEPENDENCY_ERROR` before the 120 cases, instead of producing 120 identical failures.
+`ASR_DEPENDENCY_ERROR` before evaluation, instead of producing one identical failure per case.
 
-The command prints start/completion timestamps, individual `[ASR 001/120]` progress,
+The command prints start/completion timestamps, dynamic `[001/NNN]` progress,
 elapsed time, a continuously updated ETA, per-stage duration, final suite status, total
 execution time, and report locations. The ETA becomes meaningful after several cases;
 runtime depends on audio length and hardware, and CPU inference can take substantially
 longer than CUDA inference.
 
-The evaluator defaults to the multilingual `small` model and accurate decoding. Set
-`SPEAKSCRIBE_EVAL_MODEL=medium` for a slower accuracy-focused run or `base` for a faster
-diagnostic run. Generated WAV metadata is versioned; audio made by an older generator
+The evaluator defaults to the multilingual `medium` model and accurate decoding because
+the smaller models produced broad Hindi/Hinglish failures. Set
+`SPEAKSCRIBE_EVAL_MODEL=small` for a faster diagnostic run when reduced multilingual
+accuracy is acceptable. Generated WAV metadata is versioned; audio made by an older generator
 is rebuilt automatically so stale English-voice Hindi files are not silently reused.
 
 Every case below 60% is automatically run one additional time for diagnostic evidence.
@@ -78,11 +123,11 @@ status is never upgraded merely because a retry happened to produce a better res
 The cleanup runs in a `finally` block, including when generation or evaluation fails.
 To explicitly delete human recordings too, use `--cleanup-after all`. Without a cleanup
 option, audio is retained for the next run. Do not run `test_transcription.py` after
-`run_speech_suite.py` unless a second complete 120-case ASR run is intended.
+`run_speech_suite.py` unless a second complete ASR run is intended.
 
-TTS uses installed operating-system voices and never imports the ASR engine. Windows
-uses `System.Speech` (install a `hi-IN` voice for Hindi; Hinglish prefers `hi-IN` then
-`en-IN`), macOS uses `say` with Samantha/Lekha, and Linux requires `espeak-ng` or
+TTS is independent from recognition and never imports the ASR engine itself. Windows
+uses neural Hindi synthesis with a `System.Speech` fallback, macOS uses `say` with
+Samantha/Lekha, and Linux requires `espeak-ng` or
 `espeak`. A missing language-capable backend is reported as `TTS_GENERATION_ERROR`,
 not as zero ASR accuracy. Generation metadata is stored in
 `generated_audio_manifest.json`; an existing unmanaged WAV is treated as human and is
@@ -93,10 +138,13 @@ On Windows, inspect available voices with `python tests/generate_test_audio.py
 --list-voices`. If `hi-IN` is absent, install **Hindi → Language options → Speech**
 from Windows Settings, or run the elevated PowerShell command printed by the generator.
 Latin-only Hinglish can fall back to an installed English voice; Devanagari never does.
-When an appropriate SAPI voice is missing, the generator automatically tries the
-`edge-tts` Microsoft neural Hindi/Indian-English fallback. Install updated dependencies
-with `python -m pip install -r requirements.txt`; the neural fallback needs internet
-access only while creating missing WAV files.
+On Windows, Hindi and Devanagari fixtures use Microsoft neural `edge-tts` first because
+the legacy SAPI Hindi voice produced systematic pronunciation artifacts that obscured
+ASR regressions. An installed `hi-IN` SAPI voice remains the offline fallback. English
+continues to prefer an installed SAPI voice. Install updated dependencies with
+`python -m pip install -r requirements.txt`; neural synthesis needs internet access only
+while creating missing or stale synthetic WAV files. Generator-version changes rebuild
+managed synthetic audio but never overwrite human recordings.
 
 Remove only synthetic/generated test audio (human recordings are preserved):
 
@@ -104,19 +152,19 @@ Remove only synthetic/generated test audio (human recordings are preserved):
 python tests/generate_test_audio.py --remove-generated
 ```
 
-To intentionally remove all 120 manifest audio files, including any human recordings:
+To intentionally remove all manifest audio files, including any human recordings:
 
 ```powershell
 python tests/generate_test_audio.py --remove-all
 ```
 
-Run the 120 mandatory parametrized pytest regressions:
+Run every mandatory, manifest-driven parametrized ASR regression:
 
 ```powershell
-python -m pytest tests/test_transcription.py
+python -m pytest tests/speech/test_transcription.py
 ```
 
-There is no opt-in flag and no skip path. Pytest always collects all 120 cases. Every
+There is no opt-in flag and no skip path. Pytest always collects every manifest case. Every
 missing WAV is generated and validated before Faster-Whisper is imported. If the TTS
 backend or a compatible language voice is unavailable, the case fails explicitly as
 `TTS_GENERATION_ERROR` rather than being skipped or counted as an ASR accuracy failure.

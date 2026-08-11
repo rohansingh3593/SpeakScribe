@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "speakscribe"
+version = "0.1.0"
+description = "UI-independent microphone and streaming speech-to-text library"
+readme = "SPEAKSCRIBE.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [{name = "SpeakScribe contributors"}]
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+audio = ["soundcard>=0.4.3"]
+whisper = ["faster-whisper>=1.0"]
+pyqt = ["PyQt6>=6.5"]
+all = ["soundcard>=0.4.3", "faster-whisper>=1.0"]
+dev = ["pytest>=8"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
