@@ -64,11 +64,16 @@ Selected Output** always use the manually selected transcript, and selections ar
 appended to `evaluation/mode_comparison/user_selections.jsonl` for later profile tuning.
 
 Every detected pause finalizes one aligned **LINE** in each mode row. The temporary LIVE
-hypothesis is removed at that point, while the three untouched final transcripts remain
-on the same line number for visual comparison. Words that do not align identically in
-all three results receive a dark-red highlight; common words remain unhighlighted. This
-formatting is presentation-only—Copy, selection history, reports, and downstream actions
-continue to use the exact ASR text.
+hypothesis is removed at that point. To keep comparison compact, the panel displays only
+the previous and latest finalized lines as LINE 1 and LINE 2; full untouched history is
+still retained for Copy, Save, and selection records. Words that do not align identically
+in all three results receive a dark-red highlight; common words remain unhighlighted.
+
+The live panel also shows a **Relative accuracy** percentage calculated from cross-mode
+word agreement. This is explicitly marked `(agreement)` because microphone speech has no
+known reference transcript and therefore cannot have a truthful WER or ground-truth
+accuracy percentage. Offline evaluation reports continue to show actual reference-based
+accuracy and WER. Highlighting and agreement calculations never modify the ASR text.
 
 ## Reusable library
 

@@ -2,8 +2,9 @@ import sys
 from types import ModuleType
 
 from app.processing.text_processing import (
-    apply_script_mode, clean_text, comparison_diff_html, compose_live_transcript,
-    detect_language, format_recording_time, incremental_transcript_delta,
+    apply_script_mode, clean_text, comparison_agreement_percentages,
+    comparison_diff_html, compose_live_transcript, detect_language,
+    format_recording_time, incremental_transcript_delta,
     is_low_quality_text,
     remove_history_overlap,
 )
@@ -25,6 +26,16 @@ def test_comparison_diff_highlights_only_nonmatching_words_without_changing_text
     assert ">SQLAlchemy<" in output["balanced"]
     assert "Use" in output["accurate"]
     assert ">Use<" not in output["accurate"]
+
+
+def test_comparison_agreement_is_reference_free_and_rewards_matching_pair():
+    scores = comparison_agreement_percentages({
+        "fast": "Use SQL update now",
+        "balanced": "Use SQLAlchemy update now",
+        "accurate": "Use SQLAlchemy update now",
+    })
+    assert scores["balanced"] == scores["accurate"]
+    assert scores["balanced"] > scores["fast"]
 
 
 def test_recording_timer_formats_boundaries_without_negative_time():

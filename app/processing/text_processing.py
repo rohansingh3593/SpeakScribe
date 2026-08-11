@@ -62,6 +62,22 @@ def comparison_diff_html(transcripts: dict[str, str]) -> dict[str, str]:
     return output
 
 
+def comparison_agreement_percentages(transcripts: dict[str, str]) -> dict[str, float]:
+    """Return reference-free word agreement; this is not ground-truth accuracy."""
+    normalized = {
+        mode: [re.sub(r"[^\w\u0900-\u097f]+", "", word, flags=re.UNICODE).casefold()
+               for word in text.split()]
+        for mode, text in transcripts.items()
+    }
+    scores = {}
+    for mode, words in normalized.items():
+        peers = [peer for other, peer in normalized.items() if other != mode]
+        ratios = [SequenceMatcher(None, words, peer, autojunk=False).ratio()
+                  for peer in peers]
+        scores[mode] = round(100 * sum(ratios) / len(ratios), 1) if ratios else 100.0
+    return scores
+
+
 def incremental_transcript_delta(existing: str, candidate: str) -> str:
     """Return only words not already present at the end of the live stream."""
     old_words = existing.split()

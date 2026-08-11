@@ -27,7 +27,8 @@ from app.utils.logger import (
 )
 from app.processing.translation import TranslationWorker
 from app.processing.text_processing import (
-    comparison_diff_html, compose_live_transcript, format_recording_time,
+    comparison_agreement_percentages, comparison_diff_html,
+    compose_live_transcript, format_recording_time,
 )
 
 
@@ -361,7 +362,7 @@ class MainWindow(QWidget):
             output.setPlaceholderText(f"{mode.value.title()} transcript…")
             output.setStyleSheet("color: #f5f7fa; background: #171a1f; border: 0")
             footer = QHBoxLayout()
-            metrics = QLabel("Accuracy n/a | WER n/a | First n/a | Final n/a")
+            metrics = QLabel("Relative accuracy n/a | First n/a | Final n/a")
             metrics.setStyleSheet("color: #cbd2dc")
             button = QPushButton(f"Select {mode.value.title()}")
             button.clicked.connect(lambda _checked=False, selected=mode: self.select_mode(selected))
@@ -523,11 +524,19 @@ class MainWindow(QWidget):
             state["partial"] = text
         state["metrics"] = metrics
         self._render_mode_comparison()
+        for candidate in PerformanceMode:
+            self._update_mode_metrics(candidate)
+
+    def _update_mode_metrics(self, mode: PerformanceMode) -> None:
+        state = self.mode_states[mode.value]
+        metrics = state["metrics"]
         def value(key, suffix="", digits=2):
             item = metrics.get(key)
             return "n/a" if item is None else f"{item:.{digits}f}{suffix}"
+        agreement = state.get("agreement")
+        agreement_text = "n/a" if agreement is None else f"{agreement:.1f}% (agreement)"
         self.mode_metrics[mode].setText(
-            f"Accuracy {value('accuracy', '%', 1)} | WER {value('wer')} | "
+            f"Relative accuracy {agreement_text} | "
             f"First {value('first_partial_latency', 's')} | "
             f"Final {value('final_latency', 's')} | ASR {value('asr_time', 's')} | "
             f"RTF {value('real_time_factor')} | {metrics.get('language', '—')}")
@@ -537,7 +546,10 @@ class MainWindow(QWidget):
         states = self.mode_states
         max_finals = max((len(state["finals"]) for state in states.values()), default=0)
         rendered = {mode.value: [] for mode in PerformanceMode}
-        for segment_index in range(max_finals):
+        # Keep the comparison focused: only the previous and latest pause are
+        # visible. Full untouched history remains in mode_states for Copy/Save.
+        visible_start = max(0, max_finals - 2)
+        for display_index, segment_index in enumerate(range(visible_start, max_finals), 1):
             present = {
                 mode.value: segment_index < len(states[mode.value]["finals"])
                 for mode in PerformanceMode
@@ -550,7 +562,10 @@ class MainWindow(QWidget):
             complete = all(present.values())
             highlighted = comparison_diff_html(segment) if complete else {
                 mode: escape(text) for mode, text in segment.items()}
+            agreements = (comparison_agreement_percentages(segment)
+                          if complete else {mode.value: None for mode in PerformanceMode})
             for mode in PerformanceMode:
+                states[mode.value]["agreement"] = agreements[mode.value]
                 content = highlighted[mode.value]
                 if not present[mode.value]:
                     content = "<i>Waiting for this mode…</i>"
@@ -558,7 +573,7 @@ class MainWindow(QWidget):
                     content = "<i>No speech recognized for this line.</i>"
                 rendered[mode.value].append(
                     f'<div style="margin:3px 0 7px 0"><span style="color:#8fa3bb;'
-                    f'font-size:10px">LINE {segment_index + 1}</span><br>{content}</div>')
+                    f'font-size:10px">LINE {display_index}</span><br>{content}</div>')
         for mode in PerformanceMode:
             partial = states[mode.value]["partial"]
             parts = list(rendered[mode.value])
@@ -694,7 +709,7 @@ class MainWindow(QWidget):
             self.mode_states[mode.value] = {"finals": [], "partial": "", "metrics": {}}
             self.mode_outputs[mode].clear()
             self.mode_metrics[mode].setText(
-                "Accuracy n/a | WER n/a | First n/a | Final n/a")
+                "Relative accuracy n/a | First n/a | Final n/a")
             self.show_mode_status(mode.value, "Waiting")
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
