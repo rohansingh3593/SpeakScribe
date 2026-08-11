@@ -60,6 +60,11 @@ unhighlighted. Raw mode strings remain separate and untouched. Copy produces a s
 sequential Full Script using Balanced as the explicit strategy and removes repeated
 prefix/suffix overlap between consecutive segments.
 
+The segment table is reverse chronological: the active/newest segment stays at the top
+and older audio moves downward. Late Fast/Balanced/Accurate results use the segment-ID
+lookup and update in place without changing row order. New speech follows automatically
+when the view is already near the top; manual scrolling into older history is preserved.
+
 The live panel also shows a **Relative accuracy** percentage calculated from cross-mode
 word agreement. This is explicitly marked `(agreement)` because microphone speech has no
 known reference transcript and therefore cannot have a truthful WER or ground-truth

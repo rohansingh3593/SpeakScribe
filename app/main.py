@@ -15,7 +15,7 @@ import time
 from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton,
     QPlainTextEdit, QSizePolicy, QTableWidget, QTableWidgetItem, QTextEdit,
     QVBoxLayout, QWidget,
 )
@@ -29,7 +29,8 @@ from app.utils.logger import (
 from app.processing.translation import TranslationWorker
 from app.processing.text_processing import (
     comparison_agreement_percentages, comparison_diff_html,
-    compose_live_transcript, format_recording_time, remove_history_overlap,
+    compose_live_transcript, descending_segment_row, format_recording_time,
+    remove_history_overlap,
 )
 
 
@@ -400,6 +401,8 @@ class MainWindow(QWidget):
             "QTableWidget { background:#171a1f; color:#f5f7fa; gridline-color:#3b414b; } "
             "QHeaderView::section { background:#252a32; color:white; padding:6px; }")
         self.segment_table.verticalHeader().hide()
+        self.segment_table.setVerticalScrollMode(
+            QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.segment_table.setColumnWidth(0, 145)
         self.segment_table.setColumnWidth(1, 200)
         self.segment_table.setColumnWidth(2, 200)
@@ -533,7 +536,14 @@ class MainWindow(QWidget):
         if segment_id in self.segment_states:
             state = self.segment_states[segment_id]
         else:
-            row = self.segment_table.rowCount()
+            row = descending_segment_row(self.segment_rows, segment_id)
+            scrollbar = self.segment_table.verticalScrollBar()
+            previous_scroll = scrollbar.value()
+            was_near_top = previous_scroll <= 8
+            previous_top_row = self.segment_table.rowAt(0)
+            for existing_id, existing_row in tuple(self.segment_rows.items()):
+                if existing_row >= row:
+                    self.segment_rows[existing_id] = existing_row + 1
             self.segment_table.insertRow(row)
             self.segment_table.setRowHeight(row, 105)
             self.segment_rows[segment_id] = row
@@ -549,7 +559,14 @@ class MainWindow(QWidget):
                 cell.setStyleSheet("background:#171a1f;color:#f5f7fa;border:0")
                 cell.setHtml("<i>Waiting…</i>")
                 self.segment_table.setCellWidget(row, column, cell)
-            self.segment_table.scrollToBottom()
+            inserted_above_view = previous_top_row >= 0 and row <= previous_top_row
+            # Follow a newest live segment only when already near the top.
+            # Otherwise compensate for insertion above the viewport so the
+            # older text being inspected stays at the same visual position.
+            QTimer.singleShot(
+                0, lambda old=previous_scroll, follow=(row == 0 and was_near_top),
+                compensate=inserted_above_view:
+                scrollbar.setValue(0 if follow else old + 105 if compensate else old))
         if metrics:
             state["start"] = metrics.get("start_time", state["start"])
             state["end"] = metrics.get("end_time", state["end"])

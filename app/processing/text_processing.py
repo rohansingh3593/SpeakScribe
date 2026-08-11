@@ -78,6 +78,11 @@ def comparison_agreement_percentages(transcripts: dict[str, str]) -> dict[str, f
     return scores
 
 
+def descending_segment_row(existing_ids, segment_id: int) -> int:
+    """Return the stable insertion row for newest-first segment ordering."""
+    return sum(1 for existing_id in existing_ids if existing_id > segment_id)
+
+
 def incremental_transcript_delta(existing: str, candidate: str) -> str:
     """Return only words not already present at the end of the live stream."""
     old_words = existing.split()

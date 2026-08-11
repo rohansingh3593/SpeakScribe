@@ -3,7 +3,7 @@ from types import ModuleType
 
 from app.processing.text_processing import (
     apply_script_mode, clean_text, comparison_agreement_percentages,
-    comparison_diff_html, compose_live_transcript, detect_language,
+    comparison_diff_html, compose_live_transcript, descending_segment_row, detect_language,
     format_recording_time, incremental_transcript_delta,
     is_low_quality_text,
     remove_history_overlap,
@@ -36,6 +36,13 @@ def test_comparison_agreement_is_reference_free_and_rewards_matching_pair():
     })
     assert scores["balanced"] == scores["accurate"]
     assert scores["balanced"] > scores["fast"]
+
+
+def test_segment_insertion_row_is_reverse_chronological_and_stable_for_late_results():
+    assert descending_segment_row([], 10) == 0
+    assert descending_segment_row([10, 5, 2], 12) == 0
+    assert descending_segment_row([12, 10, 5], 11) == 1
+    assert descending_segment_row([12, 10, 5], 2) == 3
 
 
 def test_recording_timer_formats_boundaries_without_negative_time():
