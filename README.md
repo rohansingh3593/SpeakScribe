@@ -63,6 +63,13 @@ row highlights it without changing the automatic recommendation. **Copy** and **
 Selected Output** always use the manually selected transcript, and selections are
 appended to `evaluation/mode_comparison/user_selections.jsonl` for later profile tuning.
 
+Every detected pause finalizes one aligned **LINE** in each mode row. The temporary LIVE
+hypothesis is removed at that point, while the three untouched final transcripts remain
+on the same line number for visual comparison. Words that do not align identically in
+all three results receive a dark-red highlight; common words remain unhighlighted. This
+formatting is presentation-only—Copy, selection history, reports, and downstream actions
+continue to use the exact ASR text.
+
 ## Reusable library
 
 The UI-independent implementation is installable from `src/speakscribe` with

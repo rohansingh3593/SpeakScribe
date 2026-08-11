@@ -1,5 +1,7 @@
 """Conservative language, cleanup, and optional script processing."""
 
+from difflib import SequenceMatcher
+from html import escape
 from importlib import import_module
 import re
 
@@ -28,6 +30,36 @@ def compose_live_transcript(final_text: list[str], partial_text: str = "") -> st
     if partial_text.strip():
         parts.append(partial_text.strip())
     return "\n".join(parts)
+
+
+def comparison_diff_html(transcripts: dict[str, str]) -> dict[str, str]:
+    """Highlight words which are not aligned identically in every transcript."""
+    tokenized = {mode: re.findall(r"\S+", text) for mode, text in transcripts.items()}
+
+    def comparable(word: str) -> str:
+        return re.sub(r"[^\w\u0900-\u097f]+", "", word, flags=re.UNICODE).casefold()
+
+    keys = {mode: [comparable(word) for word in words]
+            for mode, words in tokenized.items()}
+    output = {}
+    for mode, words in tokenized.items():
+        matching = set(range(len(words)))
+        for other_mode, other_keys in keys.items():
+            if other_mode == mode:
+                continue
+            aligned = set()
+            matcher = SequenceMatcher(None, keys[mode], other_keys, autojunk=False)
+            for block in matcher.get_matching_blocks():
+                aligned.update(range(block.a, block.a + block.size))
+            matching.intersection_update(aligned)
+        rendered = []
+        for index, word in enumerate(words):
+            safe = escape(word)
+            rendered.append(safe if index in matching else
+                            f'<span style="background-color:#8b2635;color:#fff;'
+                            f'font-weight:600;padding:1px 2px">{safe}</span>')
+        output[mode] = " ".join(rendered)
+    return output
 
 
 def incremental_transcript_delta(existing: str, candidate: str) -> str:

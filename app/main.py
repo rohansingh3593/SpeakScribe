@@ -2,6 +2,7 @@
 
 from faulthandler import enable
 import argparse
+from html import escape
 import json
 import logging
 from pathlib import Path
@@ -25,7 +26,9 @@ from app.utils.logger import (
     configure_logging, emit_status, get_logger, get_output_path, log_exception, log_print,
 )
 from app.processing.translation import TranslationWorker
-from app.processing.text_processing import compose_live_transcript, format_recording_time
+from app.processing.text_processing import (
+    comparison_diff_html, compose_live_transcript, format_recording_time,
+)
 
 
 class SpeechSignals(QObject):
@@ -352,9 +355,9 @@ class MainWindow(QWidget):
             header.addWidget(title)
             header.addStretch()
             header.addWidget(status)
-            output = QPlainTextEdit()
+            output = QTextEdit()
             output.setReadOnly(True)
-            output.setMaximumHeight(72)
+            output.setMaximumHeight(92)
             output.setPlaceholderText(f"{mode.value.title()} transcript…")
             output.setStyleSheet("color: #f5f7fa; background: #171a1f; border: 0")
             footer = QHBoxLayout()
@@ -512,17 +515,14 @@ class MainWindow(QWidget):
         mode = PerformanceMode(mode_name)
         state = self.mode_states[mode_name]
         if final:
-            if text:
-                state["finals"].append(text)
+            # Keep an entry even for an empty decode so pause-delimited lines
+            # remain aligned across all three modes.
+            state["finals"].append(text)
             state["partial"] = ""
         else:
             state["partial"] = text
         state["metrics"] = metrics
-        rendered = compose_live_transcript(state["finals"], state["partial"])
-        if final and not text and not rendered:
-            rendered = ("No speech was recognized for this segment. Check the capture source "
-                        "and microphone level in the ASR log.")
-        self.mode_outputs[mode].setPlainText(rendered)
+        self._render_mode_comparison()
         def value(key, suffix="", digits=2):
             item = metrics.get(key)
             return "n/a" if item is None else f"{item:.{digits}f}{suffix}"
@@ -531,6 +531,42 @@ class MainWindow(QWidget):
             f"First {value('first_partial_latency', 's')} | "
             f"Final {value('final_latency', 's')} | ASR {value('asr_time', 's')} | "
             f"RTF {value('real_time_factor')} | {metrics.get('language', '—')}")
+
+    def _render_mode_comparison(self) -> None:
+        """Render finalized pauses line-by-line and highlight every differing word."""
+        states = self.mode_states
+        max_finals = max((len(state["finals"]) for state in states.values()), default=0)
+        rendered = {mode.value: [] for mode in PerformanceMode}
+        for segment_index in range(max_finals):
+            present = {
+                mode.value: segment_index < len(states[mode.value]["finals"])
+                for mode in PerformanceMode
+            }
+            segment = {
+                mode.value: (states[mode.value]["finals"][segment_index]
+                             if segment_index < len(states[mode.value]["finals"]) else "")
+                for mode in PerformanceMode
+            }
+            complete = all(present.values())
+            highlighted = comparison_diff_html(segment) if complete else {
+                mode: escape(text) for mode, text in segment.items()}
+            for mode in PerformanceMode:
+                content = highlighted[mode.value]
+                if not present[mode.value]:
+                    content = "<i>Waiting for this mode…</i>"
+                elif not content:
+                    content = "<i>No speech recognized for this line.</i>"
+                rendered[mode.value].append(
+                    f'<div style="margin:3px 0 7px 0"><span style="color:#8fa3bb;'
+                    f'font-size:10px">LINE {segment_index + 1}</span><br>{content}</div>')
+        for mode in PerformanceMode:
+            partial = states[mode.value]["partial"]
+            parts = list(rendered[mode.value])
+            if partial:
+                parts.append(
+                    '<div style="color:#d9e6f5;border-left:3px solid #5aa9ff;'
+                    f'padding-left:6px"><i>LIVE</i><br>{escape(partial)}</div>')
+            self.mode_outputs[mode].setHtml("".join(parts))
 
     def show_mode_status(self, mode_name: str, status: str) -> None:
         self.mode_statuses[PerformanceMode(mode_name)].setText(f"● {status}")
