@@ -57,7 +57,8 @@ which profile currently supplies each displayed segment.
 Each live segment also shows processing time. While work is active the Fast, Balanced,
 and Accurate elapsed timers refresh once per second; completed stages show their measured
 end-to-end result latency (queue delay plus inference), so the UI never presents a guessed
-ETA as if it were measured.
+ETA as if it were measured. Every duration is printed in both seconds and milliseconds,
+for example `0.42s (421ms)`.
 
 All finalized segments remain visible and scroll vertically without three duplicated
 mode columns. Copy produces the promoted combined script in audio order. Conservative

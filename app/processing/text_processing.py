@@ -24,6 +24,12 @@ def format_recording_time(seconds: float) -> str:
     return f"{minutes:02d}:{remaining_seconds:02d}"
 
 
+def format_processing_duration(seconds: float) -> str:
+    """Show one measured duration in both seconds and milliseconds."""
+    value = max(0.0, seconds)
+    return f"{value:.2f}s ({value * 1000:.0f}ms)"
+
+
 def compose_live_transcript(final_text: list[str], partial_text: str = "") -> str:
     """Render stable text plus one replaceable partial without duplicating it."""
     parts = [text.strip() for text in final_text if text.strip()]

@@ -4,7 +4,7 @@ from types import ModuleType
 from app.processing.text_processing import (
     apply_script_mode, best_refinement_candidate, clean_text, comparison_agreement_percentages,
     comparison_diff_html, compose_live_transcript, descending_segment_row, detect_language,
-    format_recording_time, incremental_transcript_delta,
+    format_processing_duration, format_recording_time, incremental_transcript_delta,
     is_low_quality_text,
     remove_history_overlap,
 )
@@ -59,6 +59,12 @@ def test_recording_timer_formats_boundaries_without_negative_time():
     assert format_recording_time(59.9) == "00:59"
     assert format_recording_time(60) == "01:00"
     assert format_recording_time(3661) == "61:01"
+
+
+def test_processing_duration_displays_seconds_and_milliseconds():
+    assert format_processing_duration(0.421) == "0.42s (421ms)"
+    assert format_processing_duration(1.2) == "1.20s (1200ms)"
+    assert format_processing_duration(-1) == "0.00s (0ms)"
 
 
 def test_hindi_and_english_detection():

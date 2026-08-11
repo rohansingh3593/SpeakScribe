@@ -29,7 +29,8 @@ from app.utils.logger import (
 from app.processing.translation import TranslationWorker
 from app.processing.text_processing import (
     best_refinement_candidate, comparison_agreement_percentages, comparison_diff_html,
-    compose_live_transcript, descending_segment_row, format_recording_time,
+    compose_live_transcript, descending_segment_row, format_processing_duration,
+    format_recording_time,
     remove_history_overlap,
 )
 
@@ -613,9 +614,11 @@ class MainWindow(QWidget):
             data = state["modes"][mode.value]
             if data["status"] == "PROCESSING" and data["processing_started"] is not None:
                 timing.append(
-                    f'{mode.value.upper()} processing {now - data["processing_started"]:.1f}s')
+                    f'{mode.value.upper()} processing '
+                    f'{format_processing_duration(now - data["processing_started"])} elapsed')
             elif data["latency"] is not None:
-                timing.append(f'{mode.value.upper()} took {data["latency"]:.2f}s')
+                timing.append(
+                    f'{mode.value.upper()} took {format_processing_duration(data["latency"])}')
         timing_text = " · ".join(timing) or "waiting for first result"
         if not display_text:
             statuses = {item["status"] for item in state["modes"].values()}
