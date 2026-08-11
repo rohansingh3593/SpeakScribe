@@ -339,6 +339,10 @@ class ComparisonASRWorker:
                     # the placeholder with an honest, actionable state instead
                     # of making the UI look disconnected.
                     self.signals.mode_text.emit(mode_name, text, True, metrics)
+                    LOGGER.info(
+                        "Comparison final | mode=%s utterance=%s text=%r inference=%.2fs rtf=%.2f",
+                        mode_name, job.utterance_id, text, elapsed,
+                        elapsed / max(duration, .001))
                     self.signals.mode_status.emit(
                         mode_name, "Complete" if text else "Complete — no speech")
                 except Exception as exc:

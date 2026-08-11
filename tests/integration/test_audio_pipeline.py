@@ -7,8 +7,9 @@ import numpy as np
 
 import app.audio.audio_pipeline as audio_pipeline
 from app.audio.audio_pipeline import (
-    AudioCaptureWorker, EnergySpeechDetector, audio_normalization_gain, audio_statistics,
-    prepare_audio_for_asr, resample_audio_block, select_capture_device,
+    ASRJob, AudioCaptureWorker, EnergySpeechDetector, SpeechBufferWorker,
+    audio_normalization_gain, audio_statistics, prepare_audio_for_asr,
+    resample_audio_block, select_capture_device,
 )
 from app.config.settings import AppConfig
 from app.utils.logger import configure_logging
@@ -158,3 +159,16 @@ def test_default_capture_settings_use_physical_microphone_for_spoken_transcripti
     assert config.min_partial_duration == 0.80
     assert config.min_partial_speech_duration == 0.30
     assert config.partial_interval == 0.40
+
+
+def test_comparison_backpressure_replaces_stale_final_without_blocking_vad():
+    output = Queue(maxsize=1)
+    old = ASRJob(np.ones(10, dtype=np.float32), True, 1, 0.0)
+    newest = ASRJob(np.ones(10, dtype=np.float32), True, 2, 0.0)
+    output.put(old)
+    worker = SpeechBufferWorker(
+        AppConfig(asr_keep_latest_final=True), Queue(), output, Event())
+
+    worker._submit(newest)
+
+    assert output.get_nowait() is newest

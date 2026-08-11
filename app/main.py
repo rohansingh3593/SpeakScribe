@@ -50,6 +50,7 @@ class SpeechController:
         self.translation_queue: Queue | None = None
         self.model_provider = WhisperModelProvider()
         self.preload_thread: Thread | None = None
+        self.shutdown_thread: Thread | None = None
         self.running = False
 
     def preload_model(self) -> None:
@@ -131,20 +132,41 @@ class SpeechController:
             except (Empty, Full):
                 pass
 
-    def stop(self, timeout: float = 3.0) -> None:
+    def stop(self, timeout: float = 3.0) -> bool:
         if not self.running:
-            return
+            return True
         self.stop_event.set()
         deadline = time.monotonic() + timeout
         for thread in self.threads:
             thread.join(timeout=max(0.0, deadline - time.monotonic()))
             if thread.is_alive():
                 log_print(f"Worker still winding down: {thread.name}")
+        alive = [thread for thread in self.threads if thread.is_alive()]
+        if alive:
+            # CTranslate2 inference cannot be cancelled safely. Keep the
+            # controller busy until it returns so Start cannot create a second
+            # capture/ASR generation sharing and mutating the same model.
+            self.threads = alive
+            self.signals.status_changed.emit("Stopping… finishing current ASR job")
+            if self.shutdown_thread is None or not self.shutdown_thread.is_alive():
+                def reap() -> None:
+                    for worker in alive:
+                        worker.join()
+                    self.threads.clear()
+                    self.translation_queue = None
+                    self.running = False
+                    self.signals.status_changed.emit("Stopped")
+                    log_print("Listening stopped after ASR drain")
+                self.shutdown_thread = Thread(
+                    target=reap, name="worker-shutdown", daemon=True)
+                self.shutdown_thread.start()
+            return False
         self.threads.clear()
         self.translation_queue = None
         self.running = False
         self.signals.status_changed.emit("Stopped")
         log_print("Listening stopped")
+        return True
 
 
 class MainWindow(QWidget):
@@ -534,8 +556,16 @@ class MainWindow(QWidget):
                            language_mode=recognition_modes[self.language_mode.currentText()],
                            capture_source=("loopback" if self.capture_source.currentText() ==
                                            "System audio (legacy)" else "microphone"),
-                           translation_enabled=self.translation_toggle.isChecked())
-        self.performance_label.setText(f"Performance: {self.performance.currentText()}")
+                           translation_enabled=self.translation_toggle.isChecked(),
+                           # CPU comparison can finalize slower than capture.
+                           # Never let ASR backpressure stop VAD from draining
+                           # the one shared capture stream.
+                           asr_keep_latest_final=compare_all,
+                           max_audio_queue=400 if compare_all else 100,
+                           max_utterance_seconds=8.0 if compare_all else 15.0)
+        self.performance_label.setText(
+            "Performance Comparison: FAST + BALANCED + ACCURATE" if compare_all else
+            f"Performance: {self.performance.currentText()}")
         self.status.setText("Starting…")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -559,7 +589,20 @@ class MainWindow(QWidget):
     def stop_listening(self) -> None:
         self.status.setText("Stopping…")
         # Joining is bounded; normal workers exit quickly without forceful termination.
-        self.controller.stop()
+        if not self.controller.stop():
+            self.start_button.setEnabled(False)
+            self.stop_button.setEnabled(False)
+            QTimer.singleShot(250, self._wait_for_workers_to_stop)
+            return
+        self._finish_stop_ui()
+
+    def _wait_for_workers_to_stop(self) -> None:
+        if self.controller.running:
+            QTimer.singleShot(250, self._wait_for_workers_to_stop)
+            return
+        self._finish_stop_ui()
+
+    def _finish_stop_ui(self) -> None:
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
         self.performance.setEnabled(True)

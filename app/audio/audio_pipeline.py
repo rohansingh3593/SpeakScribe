@@ -170,6 +170,8 @@ class AudioCaptureWorker:
                 LOGGER.info("Audio stream warm-up complete | source=%s", source_description)
                 next_diagnostic = time.monotonic()
                 next_warning_log = 0.0
+                next_queue_warning = 0.0
+                dropped_audio_frames = 0
                 first_block = True
                 while not self.stop_event.is_set():
                     with warnings.catch_warnings(record=True) as captured_warnings:
@@ -227,7 +229,13 @@ class AudioCaptureWorker:
                             except Empty:
                                 pass
                             self.output.put_nowait(frame)
-                            LOGGER.warning("Audio queue full; dropped oldest raw frame")
+                            dropped_audio_frames += 1
+                            if now >= next_queue_warning:
+                                LOGGER.warning(
+                                    "Audio queue full; dropped %s oldest raw frame(s) since "
+                                    "the previous warning", dropped_audio_frames)
+                                dropped_audio_frames = 0
+                                next_queue_warning = now + 5.0
         except Exception as exc:
             log_exception("CAPTURE", exc)
             self.on_error(str(exc))
@@ -257,6 +265,12 @@ class SpeechBufferWorker:
             except Empty:
                 pending = None
             if pending is not None and pending.final:
+                if self.config.asr_keep_latest_final:
+                    LOGGER.warning(
+                        "ASR is behind; replaced stale final utterance=%s with newest "
+                        "utterance=%s", pending.utterance_id, job.utterance_id)
+                    self.asr_queue.put_nowait(job)
+                    return
                 self.asr_queue.put_nowait(pending)
             elif pending is not None:
                 LOGGER.debug(f"[QUEUE] evicted obsolete partial utterance={pending.utterance_id}")

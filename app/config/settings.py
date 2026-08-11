@@ -100,6 +100,10 @@ class AppConfig:
     overlap_seconds: float = 0.35
     max_audio_queue: int = 100
     max_asr_queue: int = 1
+    # Compare All can take longer than real time on CPU. In that explicitly
+    # selected mode, keep the newest completed segment rather than blocking VAD
+    # and eventually overflowing the raw capture queue behind an obsolete final.
+    asr_keep_latest_final: bool = False
     context_sentences: int = 2
     # `small` is the minimum production default with reliable multilingual
     # capacity; `base` caused broad Hindi/Hinglish degradation in real runs.
