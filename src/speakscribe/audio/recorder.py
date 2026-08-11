@@ -46,7 +46,7 @@ class SoundCardRecorder(BaseAudioRecorder):
     def iter_audio(self, stop_event: Event):
         if not self._running or self._device is None:
             raise MicrophoneError("Recorder has not been started")
-        frames = int(self.config.sample_rate * self.config.chunk_duration)
+        frames = max(1, int(self.config.sample_rate * self.config.chunk_duration))
         try:
             channels = None if self.config.capture_source == "loopback" else self.config.channels
             with self._device.recorder(samplerate=self.config.sample_rate,
@@ -55,10 +55,9 @@ class SoundCardRecorder(BaseAudioRecorder):
                     audio = prepare_audio(stream.record(numframes=frames))
                     level = rms(audio)
                     LOGGER.debug("Captured samples=%s rms=%.6f", len(audio), level)
-                    if level >= self.config.minimum_rms:
-                        yield audio
-                    else:
-                        LOGGER.debug("No speech detected for current chunk")
+                    # Silence is intentionally yielded: the streaming buffer
+                    # needs it to finalize an utterance without stopping capture.
+                    yield audio
         except MicrophoneError:
             raise
         except Exception as exc:

@@ -22,6 +22,14 @@ def format_recording_time(seconds: float) -> str:
     return f"{minutes:02d}:{remaining_seconds:02d}"
 
 
+def compose_live_transcript(final_text: list[str], partial_text: str = "") -> str:
+    """Render stable text plus one replaceable partial without duplicating it."""
+    parts = [text.strip() for text in final_text if text.strip()]
+    if partial_text.strip():
+        parts.append(partial_text.strip())
+    return "\n".join(parts)
+
+
 def incremental_transcript_delta(existing: str, candidate: str) -> str:
     """Return only words not already present at the end of the live stream."""
     old_words = existing.split()

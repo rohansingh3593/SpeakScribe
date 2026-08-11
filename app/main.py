@@ -23,7 +23,7 @@ from app.utils.logger import (
     configure_logging, emit_status, get_logger, get_output_path, log_exception, log_print,
 )
 from app.processing.translation import TranslationWorker
-from app.processing.text_processing import format_recording_time, incremental_transcript_delta
+from app.processing.text_processing import compose_live_transcript, format_recording_time
 
 
 class SpeechSignals(QObject):
@@ -148,6 +148,7 @@ class MainWindow(QWidget):
         self.signals = SpeechSignals()
         self.controller = SpeechController(self.signals)
         self.final_history: list[str] = []
+        self.current_partial = ""
         self.ever_started = False
         self.record_started_at: float | None = None
         self.record_timer = QTimer(self)
@@ -391,27 +392,28 @@ class MainWindow(QWidget):
         self._update_record_timer()
 
     def add_final(self, text: str) -> None:
+        started = time.monotonic()
         log_print(f"[GUI] final signal received chars={len(text)} text={text!r}")
         self.final_history.append(text)
-        self._append_live_text(text, final=True)
+        self.current_partial = ""
+        self._render_live_text()
+        log_print(f"[GUI] final rendered in {(time.monotonic() - started) * 1000:.1f}ms")
         self.controller.translate(text)  # display has already happened
 
     def show_partial(self, text: str) -> None:
+        started = time.monotonic()
         log_print(f"[GUI] partial signal received chars={len(text)} text={text!r}")
-        self._append_live_text(text)
+        self.current_partial = text
+        self._render_live_text()
+        log_print(f"[GUI] partial rendered in {(time.monotonic() - started) * 1000:.1f}ms")
 
-    def _append_live_text(self, text: str, *, final: bool = False) -> None:
-        """Append only the new suffix; never clear or replace visible live text."""
-        existing = self.transcription.toPlainText()
-        delta = incremental_transcript_delta(existing, text)
+    def _render_live_text(self) -> None:
+        """Replace the active partial while retaining only stable final text."""
+        self.transcription.setPlainText(
+            compose_live_transcript(self.final_history, self.current_partial)
+        )
         cursor = self.transcription.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
-        if delta:
-            if existing and not existing[-1].isspace():
-                cursor.insertText(" ")
-            cursor.insertText(delta)
-        if final and self.transcription.toPlainText().strip():
-            cursor.insertText("\n")
         self.transcription.setTextCursor(cursor)
         self.transcription.ensureCursorVisible()
 
@@ -424,6 +426,7 @@ class MainWindow(QWidget):
 
     def clear_text(self) -> None:
         self.final_history.clear()
+        self.current_partial = ""
         self.transcription.clear()
         self.translation.clear()
 

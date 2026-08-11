@@ -20,7 +20,12 @@ SoundCard capture and `whisper` for the Faster-Whisper backend; `all` installs b
 ```python
 from speakscribe import SpeakScribeError, SpeechConfig, SpeechToText
 
-config = SpeechConfig(language="en-IN", sample_rate=16_000)
+config = SpeechConfig(
+    language="en-IN",
+    sample_rate=16_000,
+    partial_interval=0.6,
+    silence_duration=0.8,
+)
 with SpeechToText(config) as speech:
     result = speech.listen_once()
     print(result.text, result.language, result.confidence)
@@ -33,8 +38,16 @@ from speakscribe import SpeechToText
 
 speech = SpeechToText()
 for result in speech.listen_continuously():
-    print(result.text)
+    state = "FINAL" if result.is_final else "PARTIAL"
+    print(state, result.text)
 ```
+
+Capture, VAD/buffering, and inference run on separate bounded worker queues. Partial
+jobs are emitted while speech is active and stale partial jobs are coalesced if the
+ASR backend is slower than capture; final jobs are retained. Consumers should replace
+their displayed partial for the same `utterance_id`, then commit it when `is_final` is
+true instead of appending every partial. Timing fields on `TranscriptionResult` expose
+audio duration, queue wait, inference, and speech-to-result latency for diagnostics.
 
 Callback consumers can use `start_continuous(on_result, on_error)` and stop safely
 with `stop()` or `close()`. Inject a `BaseAudioRecorder` and

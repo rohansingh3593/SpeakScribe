@@ -2,7 +2,7 @@ import sys
 from types import ModuleType
 
 from app.processing.text_processing import (
-    apply_script_mode, clean_text, detect_language, format_recording_time,
+    apply_script_mode, clean_text, compose_live_transcript, detect_language, format_recording_time,
     incremental_transcript_delta,
     is_low_quality_text,
     remove_history_overlap,
@@ -66,6 +66,14 @@ def test_live_transcript_appends_new_utterance_when_there_is_no_overlap():
 def test_live_transcript_revision_appends_only_changed_suffix_without_clearing():
     assert incremental_transcript_delta(
         "The build is running", "The build has completed") == "has completed"
+
+
+def test_live_transcript_replaces_partial_instead_of_appending_duplicates():
+    assert compose_live_transcript([], "I need") == "I need"
+    assert compose_live_transcript([], "I need to update") == "I need to update"
+    assert compose_live_transcript(
+        ["I need to update SQLAlchemy."], "Then create the PR"
+    ) == "I need to update SQLAlchemy.\nThen create the PR"
 
 
 def test_original_script_mode_does_not_load_optional_transliteration():
