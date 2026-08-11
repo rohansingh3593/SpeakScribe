@@ -2,7 +2,9 @@
 
 from faulthandler import enable
 import argparse
+import json
 import logging
+from pathlib import Path
 from queue import Empty, Full, Queue
 from threading import Event, Thread
 import signal
@@ -12,8 +14,9 @@ import time
 from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton,
-    QPlainTextEdit, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton,
+    QPlainTextEdit, QSizePolicy, QTableWidget, QTableWidgetItem, QTextEdit,
+    QVBoxLayout, QWidget,
 )
 
 from app.asr.asr_engine import ASRWorker, WhisperModelProvider
@@ -171,6 +174,11 @@ class MainWindow(QWidget):
         self.performance.addItems(["Fast", "Balanced", "Accurate"])
         self.performance.setCurrentText("Balanced")
         self.performance.setMinimumWidth(115)
+        self.performance.currentTextChanged.connect(
+            lambda value: self.performance_label.setText(f"Performance: {value}"))
+        self.comparison_button = QPushButton("Comparison…")
+        self.comparison_button.setToolTip("Show the latest measured three-mode report")
+        self.comparison_button.clicked.connect(self.show_comparison)
         self.script = QComboBox()
         self.script.addItems(["Original", "Latin", "Devanagari"])
         self.script.setMinimumWidth(125)
@@ -198,6 +206,7 @@ class MainWindow(QWidget):
             controls.addWidget(QLabel(label))
             controls.addWidget(control)
         controls.addWidget(self.translation_toggle)
+        controls.addWidget(self.comparison_button)
         controls.addStretch()
 
         self._build_recording_bar()
@@ -319,6 +328,57 @@ class MainWindow(QWidget):
     def _select_language(self, label: str) -> None:
         self.language_mode.setCurrentText(label)
         self._sync_language_buttons()
+
+    def show_comparison(self) -> None:
+        """Show the latest persisted measurements without invented placeholders."""
+        reports = sorted(Path("evaluation/mode_comparison").glob(
+            "session_*/comparison.json"), reverse=True)
+        if not reports:
+            self.status.setText(
+                "No measured comparison yet; run python -m evaluation.mode_comparison")
+            return
+        report = json.loads(reports[0].read_text(encoding="utf-8"))
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Performance comparison — measured results")
+        dialog.resize(800, 560)
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(
+            f"Recommended: {report['recommended_mode'].upper()} — "
+            f"{report['recommendation_reason']}"))
+        metrics = [
+            ("Accuracy (%)", "accuracy"), ("WER", "wer"),
+            ("First partial (s)", "first_partial_latency"),
+            ("Final latency (s)", "final_latency"), ("ASR time (s)", "asr_time"),
+            ("Real-time factor", "rtf"), ("CPU (%)", "cpu_percent"),
+            ("RAM (MB)", "memory_mb"), ("Technical terms (%)", "technical_accuracy"),
+            ("Language accuracy (%)", "language_accuracy"),
+            ("Suitability (/100)", "suitability_score"),
+        ]
+        table = QTableWidget(len(metrics), 4)
+        table.setHorizontalHeaderLabels(["Metric", "FAST", "BALANCED", "ACCURATE"])
+        for row, (label, key) in enumerate(metrics):
+            table.setItem(row, 0, QTableWidgetItem(label))
+            for column, mode in enumerate(("fast", "balanced", "accurate"), 1):
+                value = report["modes"][mode].get(key)
+                item = QTableWidgetItem("n/a" if value is None else str(value))
+                if report["best_by_metric"].get(key) == mode:
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+                    item.setToolTip("Best measured result for this metric")
+                table.setItem(row, column, item)
+        table.resizeColumnsToContents()
+        layout.addWidget(table)
+        transcript = QPlainTextEdit()
+        transcript.setReadOnly(True)
+        blocks = []
+        for case in report.get("transcripts", []):
+            blocks.append(f"{case['case_id']} — Expected: {case['expected']}")
+            blocks.extend(f"{mode.upper()}: {case['transcripts'].get(mode) or '(empty)'}"
+                          for mode in ("fast", "balanced", "accurate"))
+        transcript.setPlainText("\n\n".join(blocks))
+        layout.addWidget(transcript)
+        dialog.exec()
 
     def _sync_language_buttons(self, *_args) -> None:
         selected = self.language_mode.currentText()

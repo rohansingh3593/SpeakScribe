@@ -22,6 +22,28 @@ sample audio belongs under `data/`, while generated pytest sessions remain in ig
 
 A fast, real-time Speech Recognition desktop application built with **Python, PyQt6, SoundCard, and Faster-Whisper**.
 
+## Performance modes and measured comparison
+
+SpeakScribe exposes exactly three profiles. **Balanced** is the default; **Fast** uses
+shorter rolling windows, earlier/more frequent partials, greedy decoding, and less
+context, while **Accurate** uses a wider context window and stronger final decoding.
+All profiles share the same multilingual model weights, so changing mode does not reload
+Whisper. The active settings are recorded in the ASR log.
+
+Run a fair comparison (the runner sends every manifest audio file through all three
+modes) with:
+
+```bash
+python -m evaluation.mode_comparison --manifest tests/expected/transcripts.json
+```
+
+The command writes measured `comparison.json`, `comparison.csv`, and `comparison.md`
+files beneath `evaluation/mode_comparison/session_TIMESTAMP/`. Reports include raw
+transcripts, English/Hindi/Hinglish accuracy, technical-term accuracy, streaming and
+resource metrics, per-metric winners, and a weighted recommendation. The GUI's
+**Comparison…** button opens the latest report; it never displays example or fabricated
+numbers.
+
 ## Reusable library
 
 The UI-independent implementation is installable from `src/speakscribe` with

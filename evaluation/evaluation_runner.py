@@ -233,7 +233,7 @@ def _root_cause(case: dict, result: EvaluationResult) -> tuple[str, str]:
     return "Whisper decoding", "Inspect segment confidence and audio quality, then rerun the scenario and full suite."
 
 
-def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
+def evaluate_case(case: dict, root: Path, provider, performance_mode=None) -> EvaluationResult:
     from app.audio.audio_pipeline import ASRJob
     from app.config.settings import AppConfig, PerformanceMode
     from psutil import Process
@@ -242,10 +242,11 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
     # Forcing all code-switched speech through Hindi decoding drops English words.
     # Pure Hindi/English remain pinned; mixed Hinglish uses Whisper detection.
     language_hint, script_mode = evaluation_language_settings(case["language"])
+    mode = performance_mode or PerformanceMode.ACCURATE
     config = AppConfig(
         language_mode=language_hint,
         model_size=evaluation_model_size(),
-        performance_mode=PerformanceMode.ACCURATE,
+        performance_mode=mode,
         script_mode=script_mode,
     )
     audio = load_wav(path, config.sample_rate)
@@ -256,7 +257,7 @@ def evaluate_case(case: dict, root: Path, provider) -> EvaluationResult:
     first_partial_latency = None
     if case.get("streaming", False):
         first_samples = min(len(audio), round(config.min_partial_duration * config.sample_rate))
-        step_samples = max(1, round(max(config.partial_interval, 1.0) * config.sample_rate))
+        step_samples = max(1, round(config.partial_interval * config.sample_rate))
         for endpoint in range(first_samples, len(audio), step_samples):
             partial_job = ASRJob(audio=audio[:endpoint], final=False, utterance_id=1,
                                  captured_at=time.monotonic(),

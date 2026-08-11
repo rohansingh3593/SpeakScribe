@@ -13,16 +13,43 @@ class PerformanceMode(str, Enum):
 
 @dataclass(frozen=True)
 class DecodeProfile:
+    """All knobs which define a user-visible performance mode."""
+
     beam_size: int
     best_of: int
     temperature: float
+    partial_interval: float
+    min_partial_duration: float
+    rolling_window_seconds: float
+    overlap_seconds: float
+    context_sentences: int
+    silence_duration: float
+    condition_on_previous_text: bool
+    post_processing_level: str
 
 
-PROFILES = {
-    PerformanceMode.FAST: DecodeProfile(1, 1, 0.0),
-    PerformanceMode.BALANCED: DecodeProfile(3, 3, 0.0),
-    PerformanceMode.ACCURATE: DecodeProfile(5, 5, 0.0),
+PERFORMANCE_PROFILES = {
+    # One multilingual model is deliberately shared by all three profiles.  A
+    # mode switch therefore changes cheap streaming/decoding knobs, not weights.
+    PerformanceMode.FAST: DecodeProfile(
+        beam_size=1, best_of=1, temperature=0.0, partial_interval=0.25,
+        min_partial_duration=0.55, rolling_window_seconds=3.0,
+        overlap_seconds=0.20, context_sentences=1, silence_duration=0.85,
+        condition_on_previous_text=False, post_processing_level="light"),
+    PerformanceMode.BALANCED: DecodeProfile(
+        beam_size=3, best_of=3, temperature=0.0, partial_interval=0.40,
+        min_partial_duration=0.80, rolling_window_seconds=5.0,
+        overlap_seconds=0.35, context_sentences=2, silence_duration=1.25,
+        condition_on_previous_text=True, post_processing_level="standard"),
+    PerformanceMode.ACCURATE: DecodeProfile(
+        beam_size=5, best_of=5, temperature=0.0, partial_interval=0.65,
+        min_partial_duration=1.10, rolling_window_seconds=9.0,
+        overlap_seconds=0.60, context_sentences=4, silence_duration=1.65,
+        condition_on_previous_text=True, post_processing_level="full"),
 }
+
+# Backwards-compatible name for integrations which imported the old table.
+PROFILES = PERFORMANCE_PROFILES
 
 
 DEFAULT_VOCABULARY = (
@@ -109,4 +136,12 @@ class AppConfig:
 
     @property
     def profile(self) -> DecodeProfile:
-        return PROFILES[self.performance_mode]
+        return PERFORMANCE_PROFILES[self.performance_mode]
+
+    def __post_init__(self) -> None:
+        """Apply the selected centralized profile to the streaming pipeline."""
+        profile = self.profile
+        for name in ("partial_interval", "min_partial_duration",
+                     "rolling_window_seconds", "overlap_seconds",
+                     "context_sentences", "silence_duration"):
+            setattr(self, name, getattr(profile, name))

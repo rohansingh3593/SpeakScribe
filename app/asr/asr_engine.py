@@ -125,7 +125,8 @@ class WhisperEngine:
                 beam_size=beam_size, best_of=best_of,
                 temperature=profile.temperature, initial_prompt=initial_prompt,
                 hotwords=word_bias,
-                condition_on_previous_text=False, vad_filter=self.config.vad_filter,
+                condition_on_previous_text=(profile.condition_on_previous_text and job.final),
+                vad_filter=self.config.vad_filter,
                 word_timestamps=False, no_speech_threshold=no_speech_threshold,
                 log_prob_threshold=log_probability_threshold,
                 compression_ratio_threshold=compression_threshold,
@@ -186,21 +187,27 @@ class WhisperEngine:
 
 
 class WhisperModelProvider:
-    """Thread-safe owner that loads exactly one Whisper engine per application."""
+    """Thread-safe lazy cache keyed by the settings which select model weights."""
 
     def __init__(self):
-        self._engine: WhisperEngine | None = None
+        self._engines: dict[tuple[str, str, str], WhisperEngine] = {}
         self._lock = Lock()
 
     def get(self, config: AppConfig) -> WhisperEngine:
         with self._lock:
-            if self._engine is None:
-                self._engine = WhisperEngine(config)
+            key = (config.model_size, config.device, config.compute_type)
+            engine = self._engines.get(key)
+            if engine is None:
+                engine = self._engines[key] = WhisperEngine(config)
             else:
-                # Model weights/device stay cached; lightweight decode and text
-                # settings may change between listening sessions.
-                self._engine.config = config
-            return self._engine
+                # Mode/language changes never reload identical model weights.
+                engine.config = config
+            LOGGER.info("Performance profile active | mode=%s model=%s beam=%s "
+                        "partial_interval=%.2fs context=%s window=%.1fs",
+                        config.performance_mode.value, config.model_size,
+                        config.profile.beam_size, config.partial_interval,
+                        config.context_sentences, config.rolling_window_seconds)
+            return engine
 
 
 class ASRWorker:
