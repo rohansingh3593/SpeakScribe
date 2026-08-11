@@ -54,6 +54,11 @@ same segment in place, then a valid Accurate result refines it again. Empty, cor
 failed later results never erase useful earlier text. A subtle source badge identifies
 which profile currently supplies each displayed segment.
 
+Each live segment also shows processing time. While work is active the Fast, Balanced,
+and Accurate elapsed timers refresh once per second; completed stages show their measured
+end-to-end result latency (queue delay plus inference), so the UI never presents a guessed
+ETA as if it were measured.
+
 All finalized segments remain visible and scroll vertically without three duplicated
 mode columns. Copy produces the promoted combined script in audio order. Conservative
 boundary cleanup removes only a multi-word overlap between adjacent timestamps; raw Fast,

@@ -357,12 +357,15 @@ class ComparisonASRWorker:
             try:
                 text, language = engine.transcribe(job, " ".join(self.histories[mode]))
                 elapsed = time.monotonic() - started
+                result_latency = time.monotonic() - job.captured_at
                 duration = len(job.audio) / config.sample_rate
                 if text and job.final:
                     self.histories[mode].append(text)
                 metrics = {
-                    "asr_time": elapsed, "final_latency": elapsed if job.final else None,
-                    "first_partial_latency": elapsed if not job.final and text else None,
+                    "asr_time": elapsed, "queue_delay": max(0.0, started - job.captured_at),
+                    "result_latency": result_latency,
+                    "final_latency": result_latency if job.final else None,
+                    "first_partial_latency": result_latency if not job.final and text else None,
                     "real_time_factor": elapsed / max(duration, .001),
                     "cpu_percent": process.cpu_percent(None),
                     "memory_mb": process.memory_info().rss / 1024 ** 2,

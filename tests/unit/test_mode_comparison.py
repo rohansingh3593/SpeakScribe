@@ -113,6 +113,8 @@ def test_comparison_worker_runs_each_mode_for_the_same_partial_segment():
         (8, "balanced", "live words", False),
         (8, "accurate", "live words", False),
     }
+    assert all("result_latency" in value[4] and "queue_delay" in value[4]
+               for value in signals.mode_text.values)
 
 
 def test_mode_queue_final_evicts_partials_but_preserves_older_finals():

@@ -190,6 +190,7 @@ class MainWindow(QWidget):
         self.recommended_mode = PerformanceMode.BALANCED
         self.ever_started = False
         self.record_started_at: float | None = None
+        self.last_processing_refresh = 0.0
         self.record_timer = QTimer(self)
         self.record_timer.setInterval(250)
         self.record_timer.timeout.connect(self._update_record_timer)
@@ -450,6 +451,12 @@ class MainWindow(QWidget):
             return
         self.record_timer_label.setText(format_recording_time(
             time.monotonic() - self.record_started_at))
+        now = time.monotonic()
+        if now - self.last_processing_refresh >= 1.0:
+            self.last_processing_refresh = now
+            for segment_id, state in tuple(self.segment_states.items()):
+                if any(item["status"] == "PROCESSING" for item in state["modes"].values()):
+                    self._render_segment(segment_id, refresh_successor=False)
 
     def _connect_signals(self) -> None:
         self.signals.partial_text.connect(self.show_partial)
@@ -541,7 +548,8 @@ class MainWindow(QWidget):
             state = {"start": 0.0, "end": 0.0, "display_text": "",
                      "display_source": None, "modes": {
                 mode.value: {"raw": None, "partial": "", "status": "WAITING",
-                             "latency": None} for mode in PerformanceMode}}
+                             "latency": None, "processing_started": None}
+                for mode in PerformanceMode}}
             self.segment_states[segment_id] = state
             cell = QTextEdit()
             cell.setReadOnly(True)
@@ -570,10 +578,12 @@ class MainWindow(QWidget):
             mode_state["partial"] = ""
             mode_state["status"] = "FINAL"
             mode_state["latency"] = metrics.get("final_latency")
+            mode_state["processing_started"] = None
         else:
             mode_state["partial"] = text
             mode_state["status"] = "PARTIAL"
             mode_state["latency"] = metrics.get("first_partial_latency")
+            mode_state["processing_started"] = None
         self._render_segment(segment_id)
 
     def _render_segment(self, segment_id: int, refresh_successor: bool = True) -> None:
@@ -597,16 +607,27 @@ class MainWindow(QWidget):
 
         row = self.segment_rows[segment_id]
         cell = self.segment_table.cellWidget(row, 0)
+        timing = []
+        now = time.monotonic()
+        for mode in PerformanceMode:
+            data = state["modes"][mode.value]
+            if data["status"] == "PROCESSING" and data["processing_started"] is not None:
+                timing.append(
+                    f'{mode.value.upper()} processing {now - data["processing_started"]:.1f}s')
+            elif data["latency"] is not None:
+                timing.append(f'{mode.value.upper()} took {data["latency"]:.2f}s')
+        timing_text = " · ".join(timing) or "waiting for first result"
         if not display_text:
             statuses = {item["status"] for item in state["modes"].values()}
             body = ("<i>No valid speech recognized for this segment.</i>"
-                    if statuses <= {"FINAL", "ERROR"} else "<i>Processing speech…</i>")
+                    if statuses <= {"FINAL", "ERROR"} else
+                    f"<i>Processing speech…</i><br><small>{timing_text}</small>")
         else:
             badge = source.value.upper()
             body = (f'<div style="font-size:15px">{escape(display_text)}</div>'
                     f'<div style="color:#8fa3bb;font-size:10px;margin-top:4px">'
                     f'{state["start"]:07.3f}s → {state["end"]:07.3f}s '
-                    f'· refined by {badge}</div>')
+                    f'· refined by {badge}<br>{timing_text}</div>')
         cell.setHtml(body)
 
         # If an older segment refinement changes its boundary, conservatively
@@ -675,14 +696,20 @@ class MainWindow(QWidget):
 
     def show_mode_status(self, segment_id: int, mode_name: str, status: str) -> None:
         state = self._ensure_segment(segment_id)
-        state["modes"][mode_name]["status"] = status.upper()
+        mode_state = state["modes"][mode_name]
+        mode_state["status"] = status.upper()
+        if status.upper() == "PROCESSING" and mode_state["processing_started"] is None:
+            mode_state["processing_started"] = time.monotonic()
+        elif status.upper() in {"FINAL", "ERROR", "LISTENING", "PARTIAL"}:
+            mode_state["processing_started"] = None
         if status.upper() == "LISTENING":
-            state["modes"][mode_name]["partial"] = ""
+            mode_state["partial"] = ""
         self._render_segment(segment_id)
 
     def show_mode_error(self, segment_id: int, mode_name: str, message: str) -> None:
         state = self._ensure_segment(segment_id)
-        state["modes"][mode_name].update(error=message, status="ERROR")
+        state["modes"][mode_name].update(
+            error=message, status="ERROR", processing_started=None)
         self._render_segment(segment_id)
 
     def start_listening(self) -> None:
