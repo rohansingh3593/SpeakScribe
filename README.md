@@ -45,20 +45,19 @@ display example or fabricated numbers.
 
 The application has no performance selector. One capture and the existing pause-based
 VAD create immutable, timestamped segments. Each segment ID and exact audio array is sent
-to bounded Fast, Balanced, and Accurate queues, whose workers update only their own cell
-in the scrolling transcript table. Results may arrive out of order without being placed
-in the wrong segment.
+to bounded Fast, Balanced, and Accurate queues. Raw results stay separate internally,
+while the main screen shows one clean scrolling Live Transcript.
 
-Partial updates retain their segment ID and update that segment rather than appending new
-rows. On a meaningful pause the existing live row becomes final. Completion latency is
-shown in each mode cell, and word differences are recalculated incrementally when the
-second and third raw mode results arrive.
+Partial updates retain their segment ID and replace that segment rather than appending
+new lines. Fast becomes visible immediately; a valid Balanced result refines the exact
+same segment in place, then a valid Accurate result refines it again. Empty, corrupt, or
+failed later results never erase useful earlier text. A subtle source badge identifies
+which profile currently supplies each displayed segment.
 
-All finalized segments remain visible and scroll vertically. Words that do not align
-identically in the available results receive a dark-red highlight; common words remain
-unhighlighted. Raw mode strings remain separate and untouched. Copy produces a single
-sequential Full Script using Balanced as the explicit strategy and removes repeated
-prefix/suffix overlap between consecutive segments.
+All finalized segments remain visible and scroll vertically without three duplicated
+mode columns. Copy produces the promoted combined script in audio order. Conservative
+boundary cleanup removes only a multi-word overlap between adjacent timestamps; raw Fast,
+Balanced, and Accurate strings remain untouched for evaluation/debugging.
 
 The segment table is reverse chronological: the active/newest segment stays at the top
 and older audio moves downward. Late Fast/Balanced/Accurate results use the segment-ID

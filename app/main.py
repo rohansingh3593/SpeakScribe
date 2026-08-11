@@ -28,7 +28,7 @@ from app.utils.logger import (
 )
 from app.processing.translation import TranslationWorker
 from app.processing.text_processing import (
-    comparison_agreement_percentages, comparison_diff_html,
+    best_refinement_candidate, comparison_agreement_percentages, comparison_diff_html,
     compose_live_transcript, descending_segment_row, format_recording_time,
     remove_history_overlap,
 )
@@ -394,20 +394,15 @@ class MainWindow(QWidget):
         self.record_output.hide()
         self.select_mode(PerformanceMode.BALANCED, persist=False)
 
-        self.segment_table = QTableWidget(0, 5)
-        self.segment_table.setHorizontalHeaderLabels(
-            ["SEGMENT / AUDIO TIME", "FAST", "BALANCED", "ACCURATE", "STATE"])
+        self.segment_table = QTableWidget(0, 1)
+        self.segment_table.setHorizontalHeaderLabels(["LIVE TRANSCRIPT"])
         self.segment_table.setStyleSheet(
             "QTableWidget { background:#171a1f; color:#f5f7fa; gridline-color:#3b414b; } "
             "QHeaderView::section { background:#252a32; color:white; padding:6px; }")
         self.segment_table.verticalHeader().hide()
+        self.segment_table.horizontalHeader().setStretchLastSection(True)
         self.segment_table.setVerticalScrollMode(
             QAbstractItemView.ScrollMode.ScrollPerPixel)
-        self.segment_table.setColumnWidth(0, 145)
-        self.segment_table.setColumnWidth(1, 200)
-        self.segment_table.setColumnWidth(2, 200)
-        self.segment_table.setColumnWidth(3, 200)
-        self.segment_table.setColumnWidth(4, 85)
         self.segment_rows: dict[int, int] = {}
         self.segment_states: dict[int, dict] = {}
         top_row.addWidget(self.segment_table, stretch=5)
@@ -515,14 +510,10 @@ class MainWindow(QWidget):
         QApplication.clipboard().setText(self.full_script())
 
     def full_script(self) -> str:
-        """Build one non-overlapping script using Balanced as the explicit strategy."""
-        script = ""
-        for segment_id in sorted(self.segment_states):
-            text = self.segment_states[segment_id]["modes"]["balanced"].get("raw") or ""
-            addition = remove_history_overlap(script, text)
-            if addition:
-                script = f"{script} {addition}".strip()
-        return script
+        """Return the promoted, already de-overlapped segments chronologically."""
+        return " ".join(self.segment_states[segment_id].get("display_text", "")
+                        for segment_id in sorted(self.segment_states)
+                        if self.segment_states[segment_id].get("display_text"))
 
     def use_selected_output(self) -> None:
         text = self.selected_transcript
@@ -545,20 +536,18 @@ class MainWindow(QWidget):
                 if existing_row >= row:
                     self.segment_rows[existing_id] = existing_row + 1
             self.segment_table.insertRow(row)
-            self.segment_table.setRowHeight(row, 105)
+            self.segment_table.setRowHeight(row, 90)
             self.segment_rows[segment_id] = row
-            state = {"start": 0.0, "end": 0.0, "modes": {
+            state = {"start": 0.0, "end": 0.0, "display_text": "",
+                     "display_source": None, "modes": {
                 mode.value: {"raw": None, "partial": "", "status": "WAITING",
                              "latency": None} for mode in PerformanceMode}}
             self.segment_states[segment_id] = state
-            self.segment_table.setItem(row, 0, QTableWidgetItem(f"SEGMENT {segment_id:06d}"))
-            self.segment_table.setItem(row, 4, QTableWidgetItem("LIVE"))
-            for column, mode in enumerate(PerformanceMode, 1):
-                cell = QTextEdit()
-                cell.setReadOnly(True)
-                cell.setStyleSheet("background:#171a1f;color:#f5f7fa;border:0")
-                cell.setHtml("<i>Waiting…</i>")
-                self.segment_table.setCellWidget(row, column, cell)
+            cell = QTextEdit()
+            cell.setReadOnly(True)
+            cell.setStyleSheet("background:#171a1f;color:#f5f7fa;border:0;padding:5px")
+            cell.setHtml("<i>Processing speech…</i>")
+            self.segment_table.setCellWidget(row, 0, cell)
             inserted_above_view = previous_top_row >= 0 and row <= previous_top_row
             # Follow a newest live segment only when already near the top.
             # Otherwise compensate for insertion above the viewport so the
@@ -566,13 +555,10 @@ class MainWindow(QWidget):
             QTimer.singleShot(
                 0, lambda old=previous_scroll, follow=(row == 0 and was_near_top),
                 compensate=inserted_above_view:
-                scrollbar.setValue(0 if follow else old + 105 if compensate else old))
+                scrollbar.setValue(0 if follow else old + 90 if compensate else old))
         if metrics:
             state["start"] = metrics.get("start_time", state["start"])
             state["end"] = metrics.get("end_time", state["end"])
-            row = self.segment_rows[segment_id]
-            self.segment_table.item(row, 0).setText(
-                f"SEGMENT {segment_id:06d}\n{state['start']:07.3f}s → {state['end']:07.3f}s")
         return state
 
     def show_mode_text(self, segment_id: int, mode_name: str, text: str,
@@ -590,28 +576,46 @@ class MainWindow(QWidget):
             mode_state["latency"] = metrics.get("first_partial_latency")
         self._render_segment(segment_id)
 
-    def _render_segment(self, segment_id: int) -> None:
+    def _render_segment(self, segment_id: int, refresh_successor: bool = True) -> None:
         state = self.segment_states[segment_id]
-        available = {mode: data["raw"] for mode, data in state["modes"].items()
-                     if data["raw"] is not None}
-        highlighted = comparison_diff_html(available) if len(available) >= 2 else {
-            mode: escape(text) for mode, text in available.items()}
+        source_name, text = best_refinement_candidate(
+            {mode: data["raw"] for mode, data in state["modes"].items()},
+            {mode: data["partial"] for mode, data in state["modes"].items()})
+        source = PerformanceMode(source_name) if source_name else None
+
+        display_text = text
+        previous_ids = [value for value in self.segment_states if value < segment_id]
+        if display_text and previous_ids:
+            previous = self.segment_states[max(previous_ids)]
+            # Remove boundary overlap only for adjacent audio and at least two
+            # matching words, preserving intentional single-word repetition.
+            if state["start"] <= previous["end"] + 0.5:
+                display_text = remove_history_overlap(
+                    previous.get("display_text", ""), display_text, min_overlap=2)
+        state["display_text"] = display_text
+        state["display_source"] = source.value if source else None
+
         row = self.segment_rows[segment_id]
-        for column, mode in enumerate(PerformanceMode, 1):
-            data = state["modes"][mode.value]
-            if data["raw"] is not None:
-                body = (highlighted.get(mode.value, escape(data["raw"])) or
-                        "<i>No speech recognized for this audio segment.</i>")
-            elif data["partial"]:
-                body = escape(data["partial"])
-            else:
-                body = f"<i>{data['status'].title()}…</i>"
-            latency = data["latency"]
-            footer = "" if latency is None else f"<br><small>{latency * 1000:.0f} ms</small>"
-            self.segment_table.cellWidget(row, column).setHtml(body + footer)
-        complete = all(data["status"] in {"FINAL", "ERROR"}
-                       for data in state["modes"].values())
-        self.segment_table.item(row, 4).setText("FINAL" if complete else "LIVE")
+        cell = self.segment_table.cellWidget(row, 0)
+        if not display_text:
+            statuses = {item["status"] for item in state["modes"].values()}
+            body = ("<i>No valid speech recognized for this segment.</i>"
+                    if statuses <= {"FINAL", "ERROR"} else "<i>Processing speech…</i>")
+        else:
+            badge = source.value.upper()
+            body = (f'<div style="font-size:15px">{escape(display_text)}</div>'
+                    f'<div style="color:#8fa3bb;font-size:10px;margin-top:4px">'
+                    f'{state["start"]:07.3f}s → {state["end"]:07.3f}s '
+                    f'· refined by {badge}</div>')
+        cell.setHtml(body)
+
+        # If an older segment refinement changes its boundary, conservatively
+        # refresh only its immediate chronological successor, never the document.
+        next_ids = [value for value in self.segment_states if value > segment_id]
+        if refresh_successor and next_ids:
+            next_id = min(next_ids)
+            if self.segment_states[next_id].get("display_source"):
+                self._render_segment(next_id, refresh_successor=False)
 
     def _update_mode_metrics(self, mode: PerformanceMode) -> None:
         state = self.mode_states[mode.value]
@@ -678,7 +682,7 @@ class MainWindow(QWidget):
 
     def show_mode_error(self, segment_id: int, mode_name: str, message: str) -> None:
         state = self._ensure_segment(segment_id)
-        state["modes"][mode_name].update(raw=f"ERROR: {message}", status="ERROR")
+        state["modes"][mode_name].update(error=message, status="ERROR")
         self._render_segment(segment_id)
 
     def start_listening(self) -> None:

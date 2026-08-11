@@ -83,6 +83,17 @@ def descending_segment_row(existing_ids, segment_id: int) -> int:
     return sum(1 for existing_id in existing_ids if existing_id > segment_id)
 
 
+def best_refinement_candidate(raw_results: dict[str, str | None],
+                              partial_results: dict[str, str | None]) -> tuple[str | None, str]:
+    """Choose Accurate > Balanced > Fast without promoting empty/corrupt text."""
+    for candidates in (raw_results, partial_results):
+        for mode in ("accurate", "balanced", "fast"):
+            text = candidates.get(mode) or ""
+            if text and not is_low_quality_text(text):
+                return mode, text
+    return None, ""
+
+
 def incremental_transcript_delta(existing: str, candidate: str) -> str:
     """Return only words not already present at the end of the live stream."""
     old_words = existing.split()
@@ -168,11 +179,12 @@ def is_low_quality_text(text: str) -> bool:
     return False
 
 
-def remove_history_overlap(history: str, text: str, limit: int = 12) -> str:
+def remove_history_overlap(history: str, text: str, limit: int = 12,
+                           min_overlap: int = 1) -> str:
     old, new = history.split(), text.split()
     def comparable(word: str) -> str:
         return re.sub(r"[^\w\u0900-\u097f]+", "", word).casefold()
-    for count in range(min(limit, len(old), len(new)), 0, -1):
+    for count in range(min(limit, len(old), len(new)), min_overlap - 1, -1):
         if ([comparable(w) for w in old[-count:]] ==
                 [comparable(w) for w in new[:count]]):
             return " ".join(new[count:])
