@@ -70,6 +70,7 @@ def test_cleanup_bounds_three_or_more_adjacent_copies_without_erasing_emphasis()
 
 def test_history_overlap():
     assert remove_history_overlap("I updated SQLAlchemy", "SQLAlchemy and FastAPI") == "and FastAPI"
+    assert remove_history_overlap("I updated SQLAlchemy,", "SQLAlchemy version") == "version"
 
 
 def test_live_transcript_appends_only_the_new_partial_suffix():

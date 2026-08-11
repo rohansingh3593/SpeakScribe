@@ -43,31 +43,22 @@ transcripts, English/Hindi/Hinglish accuracy, technical-term accuracy, streaming
 resource metrics, per-metric winners, and a weighted recommendation. Live rows never
 display example or fabricated numbers.
 
-The **Compare All** display mode opens the microphone only once, creates one immutable
-partial/final audio snapshot, and schedules that snapshot
-through Fast, Balanced, and Accurate decoding off the Qt thread. Each mode has an
-independent row, status, stable-final history, replaceable live partial, and measured
-latency/resource summary. Accuracy and WER are shown as `n/a` during unreferenced live
-speech rather than being guessed.
+The application has no performance selector. One capture and the existing pause-based
+VAD create immutable, timestamped segments. Each segment ID and exact audio array is sent
+to bounded Fast, Balanced, and Accurate queues, whose workers update only their own cell
+in the scrolling transcript table. Results may arrive out of order without being placed
+in the wrong segment.
 
-All profiles deliberately use the same greedy, no-history policy for unstable live
-partials. Compare All therefore decodes each partial snapshot once and publishes that
-actual hypothesis to all three independent partial states, instead of running three
-identical expensive calls and starving the final queue. Once an utterance is final, the
-same final audio is decoded separately with each mode's distinct beam/context profile.
-An empty final is displayed as an explicit “No speech was recognized” diagnostic rather
-than leaving a misleading blank placeholder.
+Partial updates retain their segment ID and update that segment rather than appending new
+rows. On a meaningful pause the existing live row becomes final. Completion latency is
+shown in each mode cell, and word differences are recalculated incrementally when the
+second and third raw mode results arrive.
 
-Choose **Single Mode** when lower resource use matters. In comparison mode, selecting a
-row highlights it without changing the automatic recommendation. **Copy** and **Use
-Selected Output** always use the manually selected transcript, and selections are
-appended to `evaluation/mode_comparison/user_selections.jsonl` for later profile tuning.
-
-Every detected pause finalizes one aligned **LINE** in each mode row. The temporary LIVE
-hypothesis is removed at that point. To keep comparison compact, the panel displays only
-the previous and latest finalized lines as LINE 1 and LINE 2; full untouched history is
-still retained for Copy, Save, and selection records. Words that do not align identically
-in all three results receive a dark-red highlight; common words remain unhighlighted.
+All finalized segments remain visible and scroll vertically. Words that do not align
+identically in the available results receive a dark-red highlight; common words remain
+unhighlighted. Raw mode strings remain separate and untouched. Copy produces a single
+sequential Full Script using Balanced as the explicit strategy and removes repeated
+prefix/suffix overlap between consecutive segments.
 
 The live panel also shows a **Relative accuracy** percentage calculated from cross-mode
 word agreement. This is explicitly marked `(agreement)` because microphone speech has no
@@ -75,20 +66,12 @@ known reference transcript and therefore cannot have a truthful WER or ground-tr
 accuracy percentage. Offline evaluation reports continue to show actual reference-based
 accuracy and WER. Highlighting and agreement calculations never modify the ASR text.
 
-The application now starts with the simpler **Progressive** main view. It uses the same
-single captured segment but keeps one large live output: Fast appears first, remains
-visible while Balanced is processing, is replaced by Balanced when ready, and is finally
-replaced by Accurate when ready. If a later stage returns no text, the last useful output
-is retained. The status line always identifies the mode currently processing.
-
-The complete three-row UI remains available as a named example template:
+The previous three-row layout remains available only as a named example template:
 
 ```bash
 python -m examples.performance_comparison_template
 ```
 
-Select **Compare All** in the main Display control at any time to return to that template,
-or choose **Single Mode** to minimize CPU use.
 
 ## Reusable library
 

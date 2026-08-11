@@ -16,7 +16,8 @@ from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton,
-    QPlainTextEdit, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
+    QPlainTextEdit, QSizePolicy, QTableWidget, QTableWidgetItem, QTextEdit,
+    QVBoxLayout, QWidget,
 )
 
 from app.asr.asr_engine import ASRWorker, ComparisonASRWorker, WhisperModelProvider
@@ -28,7 +29,7 @@ from app.utils.logger import (
 from app.processing.translation import TranslationWorker
 from app.processing.text_processing import (
     comparison_agreement_percentages, comparison_diff_html,
-    compose_live_transcript, format_recording_time,
+    compose_live_transcript, format_recording_time, remove_history_overlap,
 )
 
 
@@ -39,9 +40,9 @@ class SpeechSignals(QObject):
     status_changed = pyqtSignal(str)
     error = pyqtSignal(str)
     translation_ready = pyqtSignal(str)
-    mode_text = pyqtSignal(str, str, bool, object)
-    mode_status = pyqtSignal(str, str)
-    mode_error = pyqtSignal(str, str)
+    mode_text = pyqtSignal(int, str, str, bool, object)
+    mode_status = pyqtSignal(int, str, str)
+    mode_error = pyqtSignal(int, str, str)
 
 
 class SpeechController:
@@ -234,15 +235,12 @@ class MainWindow(QWidget):
         controls.setContentsMargins(10, 5, 10, 5)
         controls.setSpacing(8)
         for label, control in (
-                ("Performance", self.performance),
                 ("Script", self.script),
                 ("Recognition", self.language_mode),
                 ("Capture", self.capture_source)):
             controls.addWidget(QLabel(label))
             controls.addWidget(control)
         controls.addWidget(self.translation_toggle)
-        controls.addWidget(QLabel("Display"))
-        controls.addWidget(self.display_mode)
         controls.addStretch()
 
         self._build_recording_bar()
@@ -391,8 +389,25 @@ class MainWindow(QWidget):
         decision.addWidget(self.use_selected_button)
         comparison_layout.addLayout(decision)
         top_row.addWidget(self.comparison_panel, stretch=5)
+        self.comparison_panel.hide()
         self.record_output.hide()
         self.select_mode(PerformanceMode.BALANCED, persist=False)
+
+        self.segment_table = QTableWidget(0, 5)
+        self.segment_table.setHorizontalHeaderLabels(
+            ["SEGMENT / AUDIO TIME", "FAST", "BALANCED", "ACCURATE", "STATE"])
+        self.segment_table.setStyleSheet(
+            "QTableWidget { background:#171a1f; color:#f5f7fa; gridline-color:#3b414b; } "
+            "QHeaderView::section { background:#252a32; color:white; padding:6px; }")
+        self.segment_table.verticalHeader().hide()
+        self.segment_table.setColumnWidth(0, 145)
+        self.segment_table.setColumnWidth(1, 200)
+        self.segment_table.setColumnWidth(2, 200)
+        self.segment_table.setColumnWidth(3, 200)
+        self.segment_table.setColumnWidth(4, 85)
+        self.segment_rows: dict[int, int] = {}
+        self.segment_states: dict[int, dict] = {}
+        top_row.addWidget(self.segment_table, stretch=5)
 
         self.record_move_bar = QWidget()
         move_layout = QHBoxLayout(self.record_move_bar)
@@ -416,8 +431,6 @@ class MainWindow(QWidget):
         self.btn_lang_hing.clicked.connect(lambda: self._select_language("Auto"))
         self.language_mode.currentTextChanged.connect(self._sync_language_buttons)
         self._sync_language_buttons()
-        self.display_mode.currentTextChanged.connect(self._sync_display_mode)
-        self._sync_display_mode()
 
     def _select_language(self, label: str) -> None:
         self.language_mode.setCurrentText(label)
@@ -453,15 +466,9 @@ class MainWindow(QWidget):
         self.signals.mode_error.connect(self.show_mode_error)
 
     def _sync_display_mode(self, *_args) -> None:
-        comparing = self.display_mode.currentText() == "Compare All"
-        progressive = self.display_mode.currentText() == "Progressive"
-        self.comparison_panel.setVisible(comparing)
-        self.record_output.setVisible(not comparing)
-        self.performance.setEnabled(not (comparing or progressive) and not self.controller.running)
-        self.performance_label.setText(
-            "Performance Comparison: FAST + BALANCED + ACCURATE" if comparing else
-            "Progressive: FAST → BALANCED → ACCURATE" if progressive else
-            f"Performance: {self.performance.currentText()}")
+        self.comparison_panel.hide()
+        self.record_output.hide()
+        self.performance_label.setText("FAST + BALANCED + ACCURATE — shared audio segments")
 
     @property
     def selected_transcript(self) -> str:
@@ -502,9 +509,17 @@ class MainWindow(QWidget):
             stream.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def copy_selected(self) -> None:
-        text = (self.selected_transcript if self.display_mode.currentText() == "Compare All"
-                else self.transcription.toPlainText())
-        QApplication.clipboard().setText(text)
+        QApplication.clipboard().setText(self.full_script())
+
+    def full_script(self) -> str:
+        """Build one non-overlapping script using Balanced as the explicit strategy."""
+        script = ""
+        for segment_id in sorted(self.segment_states):
+            text = self.segment_states[segment_id]["modes"]["balanced"].get("raw") or ""
+            addition = remove_history_overlap(script, text)
+            if addition:
+                script = f"{script} {addition}".strip()
+        return script
 
     def use_selected_output(self) -> None:
         text = self.selected_transcript
@@ -514,33 +529,71 @@ class MainWindow(QWidget):
             self._save_selection()
             self.status.setText(f"Using {self.selected_mode.value.upper()} output")
 
-    def show_mode_text(self, mode_name: str, text: str, final: bool, metrics: dict) -> None:
-        mode = PerformanceMode(mode_name)
-        state = self.mode_states[mode_name]
-        if final:
-            # Keep an entry even for an empty decode so pause-delimited lines
-            # remain aligned across all three modes.
-            state["finals"].append(text)
-            state["partial"] = ""
+    def _ensure_segment(self, segment_id: int, metrics: dict | None = None) -> dict:
+        if segment_id in self.segment_states:
+            state = self.segment_states[segment_id]
         else:
-            state["partial"] = text
-        state["metrics"] = metrics
-        if self.display_mode.currentText() == "Progressive":
-            # Shared live partials are emitted for every comparison state; show
-            # them once. Finals arrive Fast -> Balanced -> Accurate and each
-            # stronger result intentionally replaces the preceding result.
-            if final or mode is PerformanceMode.FAST:
-                stage = mode.value.upper()
-                if text:
-                    self.transcription.setPlainText(text)
-                    if final:
-                        self.selected_mode = mode
-                self.status.setText((f"{stage} complete" if text else
-                                     f"{stage} returned no text; keeping previous output")
-                                    if final else "FAST live transcription")
-        self._render_mode_comparison()
-        for candidate in PerformanceMode:
-            self._update_mode_metrics(candidate)
+            row = self.segment_table.rowCount()
+            self.segment_table.insertRow(row)
+            self.segment_table.setRowHeight(row, 105)
+            self.segment_rows[segment_id] = row
+            state = {"start": 0.0, "end": 0.0, "modes": {
+                mode.value: {"raw": None, "partial": "", "status": "WAITING",
+                             "latency": None} for mode in PerformanceMode}}
+            self.segment_states[segment_id] = state
+            self.segment_table.setItem(row, 0, QTableWidgetItem(f"SEGMENT {segment_id:06d}"))
+            self.segment_table.setItem(row, 4, QTableWidgetItem("LIVE"))
+            for column, mode in enumerate(PerformanceMode, 1):
+                cell = QTextEdit()
+                cell.setReadOnly(True)
+                cell.setStyleSheet("background:#171a1f;color:#f5f7fa;border:0")
+                cell.setHtml("<i>Waiting…</i>")
+                self.segment_table.setCellWidget(row, column, cell)
+            self.segment_table.scrollToBottom()
+        if metrics:
+            state["start"] = metrics.get("start_time", state["start"])
+            state["end"] = metrics.get("end_time", state["end"])
+            row = self.segment_rows[segment_id]
+            self.segment_table.item(row, 0).setText(
+                f"SEGMENT {segment_id:06d}\n{state['start']:07.3f}s → {state['end']:07.3f}s")
+        return state
+
+    def show_mode_text(self, segment_id: int, mode_name: str, text: str,
+                       final: bool, metrics: dict) -> None:
+        state = self._ensure_segment(segment_id, metrics)
+        mode_state = state["modes"][mode_name]
+        if final:
+            mode_state["raw"] = text
+            mode_state["partial"] = ""
+            mode_state["status"] = "FINAL"
+            mode_state["latency"] = metrics.get("final_latency")
+        else:
+            mode_state["partial"] = text
+            mode_state["status"] = "PARTIAL"
+            mode_state["latency"] = metrics.get("first_partial_latency")
+        self._render_segment(segment_id)
+
+    def _render_segment(self, segment_id: int) -> None:
+        state = self.segment_states[segment_id]
+        available = {mode: data["raw"] for mode, data in state["modes"].items()
+                     if data["raw"] is not None}
+        highlighted = comparison_diff_html(available) if len(available) >= 2 else {
+            mode: escape(text) for mode, text in available.items()}
+        row = self.segment_rows[segment_id]
+        for column, mode in enumerate(PerformanceMode, 1):
+            data = state["modes"][mode.value]
+            if data["raw"] is not None:
+                body = highlighted.get(mode.value, escape(data["raw"])) or "<i>No speech</i>"
+            elif data["partial"]:
+                body = escape(data["partial"])
+            else:
+                body = f"<i>{data['status'].title()}…</i>"
+            latency = data["latency"]
+            footer = "" if latency is None else f"<br><small>{latency * 1000:.0f} ms</small>"
+            self.segment_table.cellWidget(row, column).setHtml(body + footer)
+        complete = all(data["status"] in {"FINAL", "ERROR"}
+                       for data in state["modes"].values())
+        self.segment_table.item(row, 4).setText("FINAL" if complete else "LIVE")
 
     def _update_mode_metrics(self, mode: PerformanceMode) -> None:
         state = self.mode_states[mode.value]
@@ -598,21 +651,20 @@ class MainWindow(QWidget):
                     f'padding-left:6px"><i>LIVE</i><br>{escape(partial)}</div>')
             self.mode_outputs[mode].setHtml("".join(parts))
 
-    def show_mode_status(self, mode_name: str, status: str) -> None:
-        self.mode_statuses[PerformanceMode(mode_name)].setText(f"● {status}")
-        if self.display_mode.currentText() == "Progressive" and status == "Processing":
-            self.status.setText(f"Processing {mode_name.upper()}…")
+    def show_mode_status(self, segment_id: int, mode_name: str, status: str) -> None:
+        state = self._ensure_segment(segment_id)
+        state["modes"][mode_name]["status"] = status.upper()
+        self._render_segment(segment_id)
 
-    def show_mode_error(self, mode_name: str, message: str) -> None:
-        mode = PerformanceMode(mode_name)
-        self.mode_statuses[mode].setText("● Error")
-        self.mode_outputs[mode].setPlainText(
-            "Could not complete transcription. See debug log.\n" + message)
+    def show_mode_error(self, segment_id: int, mode_name: str, message: str) -> None:
+        state = self._ensure_segment(segment_id)
+        state["modes"][mode_name].update(raw=f"ERROR: {message}", status="ERROR")
+        self._render_segment(segment_id)
 
     def start_listening(self) -> None:
         self.ever_started = True
-        run_all = self.display_mode.currentText() in {"Progressive", "Compare All"}
-        compare_all = self.display_mode.currentText() == "Compare All"
+        run_all = True
+        compare_all = True
         # Fast cadence publishes snapshots soon enough for every comparison row;
         # each decoder still uses its own profile on the exact same ASRJob audio.
         mode = (PerformanceMode.FAST if run_all else
@@ -629,13 +681,11 @@ class MainWindow(QWidget):
                            # CPU comparison can finalize slower than capture.
                            # Never let ASR backpressure stop VAD from draining
                            # the one shared capture stream.
-                           asr_keep_latest_final=run_all,
+                           asr_keep_latest_final=False,
                            max_audio_queue=400 if run_all else 100,
+                           max_asr_queue=8,
                            max_utterance_seconds=8.0 if run_all else 15.0)
-        self.performance_label.setText(
-            "Performance Comparison: FAST + BALANCED + ACCURATE" if compare_all else
-            "Progressive: FAST → BALANCED → ACCURATE" if run_all else
-            f"Performance: {self.performance.currentText()}")
+        self.performance_label.setText("FAST + BALANCED + ACCURATE — shared audio segments")
         self.status.setText("Starting…")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
@@ -648,8 +698,6 @@ class MainWindow(QWidget):
         self.translation_toggle.setEnabled(False)
         self.translation.setVisible(config.translation_enabled)
         self.display_mode.setEnabled(False)
-        for mode_item in PerformanceMode:
-            self.show_mode_status(mode_item.value, "Waiting")
         for update in self.controller.start_stream(config, run_all):
             self.status.setText(update.message)
         self.record_started_at = time.monotonic()
@@ -724,6 +772,9 @@ class MainWindow(QWidget):
         self.current_partial = ""
         self.transcription.clear()
         self.translation.clear()
+        self.segment_table.setRowCount(0)
+        self.segment_rows.clear()
+        self.segment_states.clear()
         for mode in PerformanceMode:
             self.mode_states[mode.value] = {"finals": [], "partial": "", "metrics": {}}
             self.mode_outputs[mode].clear()

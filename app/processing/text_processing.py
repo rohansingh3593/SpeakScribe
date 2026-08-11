@@ -165,8 +165,11 @@ def is_low_quality_text(text: str) -> bool:
 
 def remove_history_overlap(history: str, text: str, limit: int = 12) -> str:
     old, new = history.split(), text.split()
+    def comparable(word: str) -> str:
+        return re.sub(r"[^\w\u0900-\u097f]+", "", word).casefold()
     for count in range(min(limit, len(old), len(new)), 0, -1):
-        if [w.casefold() for w in old[-count:]] == [w.casefold() for w in new[:count]]:
+        if ([comparable(w) for w in old[-count:]] ==
+                [comparable(w) for w in new[:count]]):
             return " ".join(new[count:])
     return text
 

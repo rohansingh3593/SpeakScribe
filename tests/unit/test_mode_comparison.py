@@ -79,13 +79,13 @@ def test_comparison_worker_fans_same_audio_to_three_isolated_modes():
     stop.set()
     ComparisonASRWorker(AppConfig(), queue, stop, signals, Provider()).run()
 
-    assert [mode for mode, _audio in calls] == list(PerformanceMode)
+    assert {mode for mode, _audio in calls} == set(PerformanceMode)
     assert all(shared is audio for _mode, shared in calls)
-    assert [value[0] for value in signals.mode_text.values] == ["fast", "accurate"]
-    assert signals.mode_error.values[0][0] == "balanced"
+    assert {value[1] for value in signals.mode_text.values} == {"fast", "accurate"}
+    assert signals.mode_error.values[0][1] == "balanced"
 
 
-def test_comparison_worker_publishes_low_latency_partial_to_every_row_once():
+def test_comparison_worker_runs_each_mode_for_the_same_partial_segment():
     calls = []
 
     class Provider:
@@ -105,9 +105,28 @@ def test_comparison_worker_publishes_low_latency_partial_to_every_row_once():
     stop.set()
     ComparisonASRWorker(AppConfig(), queue, stop, signals, Provider()).run()
 
-    assert calls == [(PerformanceMode.FAST, audio)]
-    assert [value[:3] for value in signals.mode_text.values] == [
-        ("fast", "live words", False),
-        ("balanced", "live words", False),
-        ("accurate", "live words", False),
-    ]
+    assert {mode for mode, _audio in calls} == set(PerformanceMode)
+    assert all(shared is audio for _mode, shared in calls)
+    assert {(value[0], value[1], value[2], value[3])
+            for value in signals.mode_text.values} == {
+        (8, "fast", "live words", False),
+        (8, "balanced", "live words", False),
+        (8, "accurate", "live words", False),
+    }
+
+
+def test_mode_queue_final_evicts_partials_but_preserves_older_finals():
+    queue = Queue(maxsize=8)
+    audio = np.ones(10, dtype=np.float32)
+    older_final = ASRJob(audio, True, 1, 0.0)
+    queue.put(older_final)
+    queue.put(ASRJob(audio, False, 2, 0.0))
+    queue.put(ASRJob(audio, False, 2, 0.0))
+    newest_final = ASRJob(audio, True, 2, 0.0)
+
+    ComparisonASRWorker._enqueue_mode_job(
+        PerformanceMode.FAST, queue, newest_final)
+
+    assert queue.get_nowait() is older_final
+    assert queue.get_nowait() is newest_final
+    assert queue.empty()

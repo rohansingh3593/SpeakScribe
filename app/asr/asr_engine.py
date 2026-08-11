@@ -1,8 +1,8 @@
 """Single-model Faster-Whisper inference worker."""
 
 from collections import deque
-from queue import Empty, Queue
-from threading import Event, Lock
+from queue import Empty, Full, Queue
+from threading import Event, Lock, Thread
 from pathlib import Path
 import time
 import wave
@@ -43,9 +43,9 @@ def _write_debug_wav(path: Path, audio: np.ndarray, sample_rate: int) -> None:
 
 
 class WhisperEngine:
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, model=None):
         self.config = config
-        self.model = self._load_model()
+        self.model = model if model is not None else self._load_model()
 
     def _load_model(self):
         started = time.monotonic()
@@ -191,15 +191,21 @@ class WhisperModelProvider:
     """Thread-safe lazy cache keyed by the settings which select model weights."""
 
     def __init__(self):
-        self._engines: dict[tuple[str, str, str], WhisperEngine] = {}
+        self._engines: dict[tuple, WhisperEngine] = {}
+        self._models: dict[tuple[str, str, str], object] = {}
         self._lock = Lock()
 
     def get(self, config: AppConfig) -> WhisperEngine:
         with self._lock:
-            key = (config.model_size, config.device, config.compute_type)
-            engine = self._engines.get(key)
+            model_key = (config.model_size, config.device, config.compute_type)
+            engine_key = (*model_key, config.performance_mode, config.language_mode,
+                          config.script_mode)
+            engine = self._engines.get(engine_key)
             if engine is None:
-                engine = self._engines[key] = WhisperEngine(config)
+                model = self._models.get(model_key)
+                engine = WhisperEngine(config, model=model)
+                self._models.setdefault(model_key, engine.model)
+                self._engines[engine_key] = engine
             else:
                 # Mode/language changes never reload identical model weights.
                 engine.config = config
@@ -288,6 +294,12 @@ class ComparisonASRWorker:
         self.first_seen: dict[tuple[int, PerformanceMode], float] = {}
 
     def run(self) -> None:
+        queues = {mode: Queue(maxsize=8) for mode in PerformanceMode}
+        workers = [Thread(target=self._run_mode, args=(mode, queues[mode]),
+                          name=f"asr-{mode.value}", daemon=True)
+                   for mode in PerformanceMode]
+        for worker in workers:
+            worker.start()
         stop_empty_since = None
         while True:
             try:
@@ -297,96 +309,67 @@ class ComparisonASRWorker:
                     continue
                 stop_empty_since = stop_empty_since or time.monotonic()
                 if time.monotonic() - stop_empty_since >= 0.75:
-                    return
+                    break
                 continue
             stop_empty_since = None
-            if not job.final:
-                self._decode_shared_partial(job)
-                continue
-            # A single controlled worker avoids concurrent calls into the shared
-            # CTranslate2 model while capture and the Qt event loop remain free.
-            for mode in PerformanceMode:
-                mode_name = mode.value
-                self.signals.mode_status.emit(mode_name, "Processing")
-                mode_config = AppConfig(**{
-                    **self.config.__dict__, "performance_mode": mode,
-                })
-                started = time.monotonic()
-                process = Process()
-                process.cpu_percent(None)
+            for mode, mode_queue in queues.items():
+                self._enqueue_mode_job(mode, mode_queue, job)
+        for mode_queue in queues.values():
+            mode_queue.put(None)
+        for worker in workers:
+            worker.join()
+
+    @staticmethod
+    def _enqueue_mode_job(mode: PerformanceMode, queue: Queue, job: ASRJob) -> None:
+        if job.final:
+            retained_finals = []
+            while True:
                 try:
-                    engine = self.model_provider.get(mode_config)
-                    text, language = engine.transcribe(
-                        job, " ".join(self.histories[mode]))
-                    elapsed = time.monotonic() - started
-                    duration = len(job.audio) / mode_config.sample_rate
-                    key = (job.utterance_id, mode)
-                    if text and key not in self.first_seen:
-                        self.first_seen[key] = elapsed
-                    metrics = {
-                        # Accuracy/WER need a reference and must never be invented live.
-                        "accuracy": None, "wer": None,
-                        "first_partial_latency": self.first_seen.get(key),
-                        "final_latency": elapsed if job.final else None,
-                        "asr_time": elapsed, "real_time_factor": elapsed / max(duration, .001),
-                        "cpu_percent": process.cpu_percent(None),
-                        "memory_mb": process.memory_info().rss / 1024 ** 2,
-                        "language": language,
-                    }
-                    if text:
-                        self.histories[mode].append(text)
-                    # Always emit finals.  An empty decoder result must replace
-                    # the placeholder with an honest, actionable state instead
-                    # of making the UI look disconnected.
-                    self.signals.mode_text.emit(mode_name, text, True, metrics)
-                    LOGGER.info(
-                        "Comparison final | mode=%s utterance=%s text=%r inference=%.2fs rtf=%.2f",
-                        mode_name, job.utterance_id, text, elapsed,
-                        elapsed / max(duration, .001))
-                    self.signals.mode_status.emit(
-                        mode_name, "Complete" if text else "Complete — no speech")
-                except Exception as exc:
-                    log_exception(f"ASR-{mode_name.upper()}", exc)
-                    self.signals.mode_error.emit(mode_name, str(exc))
-
-    def _decode_shared_partial(self, job: ASRJob) -> None:
-        """Decode the common low-latency partial once and publish it to each row.
-
-        Live hypotheses intentionally use the same greedy/no-history policy in
-        :class:`WhisperEngine` for every profile. Repeating that identical,
-        expensive inference three times caused minute-long queue stalls. Final
-        jobs still run every distinct profile and remain the comparison result.
-        """
-        for mode in PerformanceMode:
-            self.signals.mode_status.emit(mode.value, "Processing")
-        started = time.monotonic()
-        process = Process()
-        process.cpu_percent(None)
+                    pending = queue.get_nowait()
+                except Empty:
+                    break
+                if pending.final:
+                    retained_finals.append(pending)
+            for pending in retained_finals:
+                queue.put(pending)
+            queue.put(job)
+            return
         try:
-            fast_config = AppConfig(**{
-                **self.config.__dict__, "performance_mode": PerformanceMode.FAST,
-            })
-            text, language = self.model_provider.get(fast_config).transcribe(job, "")
-            elapsed = time.monotonic() - started
-            duration = len(job.audio) / fast_config.sample_rate
-            metrics = {
-                "accuracy": None, "wer": None,
-                "first_partial_latency": elapsed if text else None,
-                "final_latency": None, "asr_time": elapsed,
-                "real_time_factor": elapsed / max(duration, .001),
-                "cpu_percent": process.cpu_percent(None),
-                "memory_mb": process.memory_info().rss / 1024 ** 2,
-                "language": language,
-            }
-            for mode in PerformanceMode:
-                if text:
-                    key = (job.utterance_id, mode)
-                    self.first_seen.setdefault(key, elapsed)
-                    row_metrics = {**metrics,
-                                   "first_partial_latency": self.first_seen[key]}
-                    self.signals.mode_text.emit(mode.value, text, False, row_metrics)
-                self.signals.mode_status.emit(mode.value, "Partial" if text else "Listening")
-        except Exception as exc:
-            log_exception("ASR-COMPARISON-PARTIAL", exc)
-            for mode in PerformanceMode:
-                self.signals.mode_error.emit(mode.value, str(exc))
+            queue.put_nowait(job)
+        except Full:
+            LOGGER.debug("Dropped stale partial | mode=%s segment=%s",
+                         mode.value, job.utterance_id)
+
+    def _run_mode(self, mode: PerformanceMode, queue: Queue) -> None:
+        config = AppConfig(**{**self.config.__dict__, "performance_mode": mode})
+        engine = self.model_provider.get(config)
+        process = Process()
+        while True:
+            job = queue.get()
+            if job is None:
+                return
+            self.signals.mode_status.emit(job.utterance_id, mode.value, "Processing")
+            started = time.monotonic()
+            try:
+                text, language = engine.transcribe(job, " ".join(self.histories[mode]))
+                elapsed = time.monotonic() - started
+                duration = len(job.audio) / config.sample_rate
+                if text and job.final:
+                    self.histories[mode].append(text)
+                metrics = {
+                    "asr_time": elapsed, "final_latency": elapsed if job.final else None,
+                    "first_partial_latency": elapsed if not job.final and text else None,
+                    "real_time_factor": elapsed / max(duration, .001),
+                    "cpu_percent": process.cpu_percent(None),
+                    "memory_mb": process.memory_info().rss / 1024 ** 2,
+                    "language": language, "start_time": job.audio_start_time,
+                    "end_time": job.audio_end_time,
+                }
+                self.signals.mode_text.emit(
+                    job.utterance_id, mode.value, text, job.final, metrics)
+                self.signals.mode_status.emit(
+                    job.utterance_id, mode.value,
+                    "Final" if job.final else "Partial")
+            except Exception as exc:
+                log_exception(f"ASR-{mode.value.upper()}", exc)
+                self.signals.mode_error.emit(job.utterance_id, mode.value, str(exc))
