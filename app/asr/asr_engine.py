@@ -16,6 +16,7 @@ from app.audio.audio_pipeline import (
     ASRJob, audio_normalization_gain, audio_statistics, prepare_audio_for_asr,
 )
 from app.config.settings import AppConfig
+from app.config.settings import PerformanceMode
 from app.config.decoding_policy import hotwords, initial_prompt, retry_thresholds
 from app.utils.logger import get_logger, log_exception
 from app.processing.text_processing import (
@@ -273,3 +274,68 @@ class ASRWorker:
         except Exception as exc:
             log_exception("ASR-WORKER", exc)
             self.signals.error.emit(str(exc))
+
+
+class ComparisonASRWorker:
+    """Decode each immutable ASR snapshot under all profiles off the GUI thread."""
+
+    def __init__(self, config: AppConfig, queue: Queue, stop_event: Event, signals,
+                 model_provider: WhisperModelProvider):
+        self.config, self.queue, self.stop_event = config, queue, stop_event
+        self.signals, self.model_provider = signals, model_provider
+        self.histories = {mode: deque(maxlen=AppConfig(
+            performance_mode=mode).context_sentences) for mode in PerformanceMode}
+        self.first_seen: dict[tuple[int, PerformanceMode], float] = {}
+
+    def run(self) -> None:
+        stop_empty_since = None
+        while True:
+            try:
+                job = self.queue.get(timeout=0.1)
+            except Empty:
+                if not self.stop_event.is_set():
+                    continue
+                stop_empty_since = stop_empty_since or time.monotonic()
+                if time.monotonic() - stop_empty_since >= 0.75:
+                    return
+                continue
+            stop_empty_since = None
+            # A single controlled worker avoids concurrent calls into the shared
+            # CTranslate2 model while capture and the Qt event loop remain free.
+            for mode in PerformanceMode:
+                mode_name = mode.value
+                self.signals.mode_status.emit(mode_name, "Processing")
+                mode_config = AppConfig(**{
+                    **self.config.__dict__, "performance_mode": mode,
+                })
+                started = time.monotonic()
+                process = Process()
+                process.cpu_percent(None)
+                try:
+                    engine = self.model_provider.get(mode_config)
+                    text, language = engine.transcribe(
+                        job, " ".join(self.histories[mode]))
+                    elapsed = time.monotonic() - started
+                    duration = len(job.audio) / mode_config.sample_rate
+                    key = (job.utterance_id, mode)
+                    if text and key not in self.first_seen:
+                        self.first_seen[key] = elapsed
+                    metrics = {
+                        # Accuracy/WER need a reference and must never be invented live.
+                        "accuracy": None, "wer": None,
+                        "first_partial_latency": self.first_seen.get(key),
+                        "final_latency": elapsed if job.final else None,
+                        "asr_time": elapsed, "real_time_factor": elapsed / max(duration, .001),
+                        "cpu_percent": process.cpu_percent(None),
+                        "memory_mb": process.memory_info().rss / 1024 ** 2,
+                        "language": language,
+                    }
+                    if text:
+                        if job.final:
+                            self.histories[mode].append(text)
+                        self.signals.mode_text.emit(mode_name, text, job.final, metrics)
+                    self.signals.mode_status.emit(
+                        mode_name, "Complete" if job.final else "Partial")
+                except Exception as exc:
+                    log_exception(f"ASR-{mode_name.upper()}", exc)
+                    self.signals.mode_error.emit(mode_name, str(exc))

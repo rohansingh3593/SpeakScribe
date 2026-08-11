@@ -14,12 +14,11 @@ import time
 from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QHBoxLayout, QLabel, QPushButton,
-    QPlainTextEdit, QSizePolicy, QTableWidget, QTableWidgetItem, QTextEdit,
-    QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton,
+    QPlainTextEdit, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from app.asr.asr_engine import ASRWorker, WhisperModelProvider
+from app.asr.asr_engine import ASRWorker, ComparisonASRWorker, WhisperModelProvider
 from app.audio.audio_pipeline import AudioCaptureWorker, SpeechBufferWorker
 from app.config.settings import AppConfig, PerformanceMode
 from app.utils.logger import (
@@ -36,6 +35,9 @@ class SpeechSignals(QObject):
     status_changed = pyqtSignal(str)
     error = pyqtSignal(str)
     translation_ready = pyqtSignal(str)
+    mode_text = pyqtSignal(str, str, bool, object)
+    mode_status = pyqtSignal(str, str)
+    mode_error = pyqtSignal(str, str)
 
 
 class SpeechController:
@@ -67,7 +69,7 @@ class SpeechController:
         self.preload_thread = Thread(target=load, name="whisper-preload", daemon=True)
         self.preload_thread.start()
 
-    def start(self, config: AppConfig) -> None:
+    def start(self, config: AppConfig, compare_all: bool = False) -> None:
         if self.running:
             return
         self.running = True
@@ -77,8 +79,10 @@ class SpeechController:
         capture = AudioCaptureWorker(config, audio_queue, self.stop_event,
                                      self.signals.error.emit)
         buffer = SpeechBufferWorker(config, audio_queue, asr_queue, self.stop_event)
-        asr = ASRWorker(config, asr_queue, self.stop_event, self.signals,
-                        self.model_provider)
+        asr = (ComparisonASRWorker(config, asr_queue, self.stop_event, self.signals,
+                                   self.model_provider) if compare_all else
+               ASRWorker(config, asr_queue, self.stop_event, self.signals,
+                         self.model_provider))
         self.threads = [
             Thread(target=capture.run, name="audio-capture", daemon=True),
             Thread(target=buffer.run, name="speech-buffer", daemon=True),
@@ -104,14 +108,14 @@ class SpeechController:
             f"debug_audio={config.debug_audio_enabled}"
         )
 
-    def start_stream(self, config: AppConfig):
+    def start_stream(self, config: AppConfig, compare_all: bool = False):
         """Preserve ``start`` while yielding live, already-logged status updates."""
         if self.running:
             yield emit_status("Listening session is already running", level=logging.WARNING,
                               component="controller")
             return
         yield emit_status("Preparing audio and ASR workers", component="controller")
-        self.start(config)
+        self.start(config, compare_all)
         yield emit_status("Audio capture and transcription workers started",
                           component="controller")
 
@@ -147,11 +151,15 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SpeakScribe")
-        self.resize(1080, 540)
+        self.resize(1080, 780)
         self.signals = SpeechSignals()
         self.controller = SpeechController(self.signals)
         self.final_history: list[str] = []
         self.current_partial = ""
+        self.mode_states = {mode.value: {"finals": [], "partial": "", "metrics": {}}
+                            for mode in PerformanceMode}
+        self.selected_mode = PerformanceMode.BALANCED
+        self.recommended_mode = PerformanceMode.BALANCED
         self.ever_started = False
         self.record_started_at: float | None = None
         self.record_timer = QTimer(self)
@@ -176,9 +184,10 @@ class MainWindow(QWidget):
         self.performance.setMinimumWidth(115)
         self.performance.currentTextChanged.connect(
             lambda value: self.performance_label.setText(f"Performance: {value}"))
-        self.comparison_button = QPushButton("Comparison…")
-        self.comparison_button.setToolTip("Show the latest measured three-mode report")
-        self.comparison_button.clicked.connect(self.show_comparison)
+        self.display_mode = QComboBox()
+        self.display_mode.addItems(["Compare All", "Single Mode"])
+        self.display_mode.setToolTip(
+            "Compare All shares one capture across three decoders; Single Mode uses fewer resources")
         self.script = QComboBox()
         self.script.addItems(["Original", "Latin", "Devanagari"])
         self.script.setMinimumWidth(125)
@@ -206,7 +215,8 @@ class MainWindow(QWidget):
             controls.addWidget(QLabel(label))
             controls.addWidget(control)
         controls.addWidget(self.translation_toggle)
-        controls.addWidget(self.comparison_button)
+        controls.addWidget(QLabel("Display"))
+        controls.addWidget(self.display_mode)
         controls.addStretch()
 
         self._build_recording_bar()
@@ -229,7 +239,7 @@ class MainWindow(QWidget):
         self.record_output_container.setObjectName("recordOutputPanel")
         self.record_output_container.setMinimumWidth(900)
         self.record_output_container.setMaximumWidth(1080)
-        self.record_output_container.setFixedHeight(340)
+        self.record_output_container.setFixedHeight(680)
         self.record_output_container.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.record_output_container.setStyleSheet(
@@ -301,6 +311,63 @@ class MainWindow(QWidget):
         top_row.addWidget(self.record_output, stretch=5)
         outer_layout.addLayout(top_row)
 
+        self.comparison_panel = QWidget()
+        comparison_layout = QVBoxLayout(self.comparison_panel)
+        comparison_layout.setContentsMargins(0, 0, 0, 0)
+        comparison_layout.setSpacing(5)
+        self.mode_outputs, self.mode_statuses = {}, {}
+        self.mode_metrics, self.mode_buttons, self.mode_rows = {}, {}, {}
+        for mode in PerformanceMode:
+            row = QWidget()
+            row.setObjectName(f"comparisonRow_{mode.value}")
+            row_layout = QVBoxLayout(row)
+            row_layout.setContentsMargins(8, 5, 8, 5)
+            header = QHBoxLayout()
+            title = QLabel(mode.value.upper())
+            title.setStyleSheet("font-weight: bold; color: #f5f7fa")
+            status = QLabel("● Waiting")
+            status.setStyleSheet("color: #aeb7c4")
+            header.addWidget(title)
+            header.addStretch()
+            header.addWidget(status)
+            output = QPlainTextEdit()
+            output.setReadOnly(True)
+            output.setMaximumHeight(72)
+            output.setPlaceholderText(f"{mode.value.title()} transcript…")
+            output.setStyleSheet("color: #f5f7fa; background: #171a1f; border: 0")
+            footer = QHBoxLayout()
+            metrics = QLabel("Accuracy n/a | WER n/a | First n/a | Final n/a")
+            metrics.setStyleSheet("color: #cbd2dc")
+            button = QPushButton(f"Select {mode.value.title()}")
+            button.clicked.connect(lambda _checked=False, selected=mode: self.select_mode(selected))
+            footer.addWidget(metrics)
+            footer.addStretch()
+            footer.addWidget(button)
+            row_layout.addLayout(header)
+            row_layout.addWidget(output)
+            row_layout.addLayout(footer)
+            comparison_layout.addWidget(row)
+            self.mode_rows[mode] = row
+            self.mode_outputs[mode] = output
+            self.mode_statuses[mode] = status
+            self.mode_metrics[mode] = metrics
+            self.mode_buttons[mode] = button
+        decision = QHBoxLayout()
+        self.recommended_label = QLabel("Recommended: BALANCED")
+        self.selected_label = QLabel("Selected: BALANCED")
+        for label in (self.recommended_label, self.selected_label):
+            label.setStyleSheet("color: white; font-weight: bold")
+        self.use_selected_button = QPushButton("Use Selected Output")
+        self.use_selected_button.clicked.connect(self.use_selected_output)
+        decision.addWidget(self.recommended_label)
+        decision.addWidget(self.selected_label)
+        decision.addStretch()
+        decision.addWidget(self.use_selected_button)
+        comparison_layout.addLayout(decision)
+        top_row.addWidget(self.comparison_panel, stretch=5)
+        self.record_output.hide()
+        self.select_mode(PerformanceMode.BALANCED, persist=False)
+
         self.record_move_bar = QWidget()
         move_layout = QHBoxLayout(self.record_move_bar)
         move_layout.setContentsMargins(0, 4, 0, 0)
@@ -317,68 +384,18 @@ class MainWindow(QWidget):
         self.start_button.clicked.connect(self.start_listening)
         self.stop_button.clicked.connect(self.stop_listening)
         self.btn_record_clear.clicked.connect(self.clear_text)
-        self.btn_copy_transcript.clicked.connect(lambda: QApplication.clipboard().setText(
-            self.transcription.toPlainText()))
+        self.btn_copy_transcript.clicked.connect(self.copy_selected)
         self.btn_lang_eng.clicked.connect(lambda: self._select_language("English"))
         self.btn_lang_hin.clicked.connect(lambda: self._select_language("Hindi / Hinglish"))
         self.btn_lang_hing.clicked.connect(lambda: self._select_language("Auto"))
         self.language_mode.currentTextChanged.connect(self._sync_language_buttons)
         self._sync_language_buttons()
+        self.display_mode.currentTextChanged.connect(self._sync_display_mode)
+        self._sync_display_mode()
 
     def _select_language(self, label: str) -> None:
         self.language_mode.setCurrentText(label)
         self._sync_language_buttons()
-
-    def show_comparison(self) -> None:
-        """Show the latest persisted measurements without invented placeholders."""
-        reports = sorted(Path("evaluation/mode_comparison").glob(
-            "session_*/comparison.json"), reverse=True)
-        if not reports:
-            self.status.setText(
-                "No measured comparison yet; run python -m evaluation.mode_comparison")
-            return
-        report = json.loads(reports[0].read_text(encoding="utf-8"))
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Performance comparison — measured results")
-        dialog.resize(800, 560)
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel(
-            f"Recommended: {report['recommended_mode'].upper()} — "
-            f"{report['recommendation_reason']}"))
-        metrics = [
-            ("Accuracy (%)", "accuracy"), ("WER", "wer"),
-            ("First partial (s)", "first_partial_latency"),
-            ("Final latency (s)", "final_latency"), ("ASR time (s)", "asr_time"),
-            ("Real-time factor", "rtf"), ("CPU (%)", "cpu_percent"),
-            ("RAM (MB)", "memory_mb"), ("Technical terms (%)", "technical_accuracy"),
-            ("Language accuracy (%)", "language_accuracy"),
-            ("Suitability (/100)", "suitability_score"),
-        ]
-        table = QTableWidget(len(metrics), 4)
-        table.setHorizontalHeaderLabels(["Metric", "FAST", "BALANCED", "ACCURATE"])
-        for row, (label, key) in enumerate(metrics):
-            table.setItem(row, 0, QTableWidgetItem(label))
-            for column, mode in enumerate(("fast", "balanced", "accurate"), 1):
-                value = report["modes"][mode].get(key)
-                item = QTableWidgetItem("n/a" if value is None else str(value))
-                if report["best_by_metric"].get(key) == mode:
-                    font = item.font()
-                    font.setBold(True)
-                    item.setFont(font)
-                    item.setToolTip("Best measured result for this metric")
-                table.setItem(row, column, item)
-        table.resizeColumnsToContents()
-        layout.addWidget(table)
-        transcript = QPlainTextEdit()
-        transcript.setReadOnly(True)
-        blocks = []
-        for case in report.get("transcripts", []):
-            blocks.append(f"{case['case_id']} — Expected: {case['expected']}")
-            blocks.extend(f"{mode.upper()}: {case['transcripts'].get(mode) or '(empty)'}"
-                          for mode in ("fast", "balanced", "accurate"))
-        transcript.setPlainText("\n\n".join(blocks))
-        layout.addWidget(transcript)
-        dialog.exec()
 
     def _sync_language_buttons(self, *_args) -> None:
         selected = self.language_mode.currentText()
@@ -405,10 +422,106 @@ class MainWindow(QWidget):
         self.signals.status_changed.connect(self.status.setText)
         self.signals.error.connect(self.show_error)
         self.signals.translation_ready.connect(self.show_translation)
+        self.signals.mode_text.connect(self.show_mode_text)
+        self.signals.mode_status.connect(self.show_mode_status)
+        self.signals.mode_error.connect(self.show_mode_error)
+
+    def _sync_display_mode(self, *_args) -> None:
+        comparing = self.display_mode.currentText() == "Compare All"
+        self.comparison_panel.setVisible(comparing)
+        self.record_output.setVisible(not comparing)
+        self.performance.setEnabled(not comparing and not self.controller.running)
+        self.performance_label.setText(
+            "Performance Comparison: FAST + BALANCED + ACCURATE" if comparing else
+            f"Performance: {self.performance.currentText()}")
+
+    @property
+    def selected_transcript(self) -> str:
+        state = self.mode_states[self.selected_mode.value]
+        return compose_live_transcript(state["finals"], state["partial"])
+
+    def select_mode(self, mode: PerformanceMode, persist: bool = True) -> None:
+        """Change the user's choice only; recommendations never call this method."""
+        self.selected_mode = mode
+        self.selected_label.setText(f"Selected: {mode.value.upper()}")
+        for candidate in PerformanceMode:
+            selected = candidate is mode
+            self.mode_buttons[candidate].setText(
+                "✓ Selected" if selected else f"Select {candidate.value.title()}")
+            self.mode_rows[candidate].setStyleSheet(
+                "background: #29466d; border: 2px solid #65a8ff; border-radius: 5px;"
+                if selected else
+                "background: #252a32; border: 1px solid #3b414b; border-radius: 5px;")
+        if persist:
+            self._save_selection()
+
+    def _save_selection(self) -> None:
+        segment_id = max((len(state["finals"]) for state in self.mode_states.values()),
+                         default=0)
+        record = {
+            "segment_id": segment_id,
+            **{mode.value: compose_live_transcript(
+                self.mode_states[mode.value]["finals"],
+                self.mode_states[mode.value]["partial"])
+               for mode in PerformanceMode},
+            "selected_mode": self.selected_mode.value,
+            "selected_text": self.selected_transcript,
+            "recommended_mode": self.recommended_mode.value,
+        }
+        path = Path("evaluation/mode_comparison/user_selections.jsonl")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def copy_selected(self) -> None:
+        text = (self.selected_transcript if self.display_mode.currentText() == "Compare All"
+                else self.transcription.toPlainText())
+        QApplication.clipboard().setText(text)
+
+    def use_selected_output(self) -> None:
+        text = self.selected_transcript
+        if text:
+            QApplication.clipboard().setText(text)
+            self.controller.translate(text)
+            self._save_selection()
+            self.status.setText(f"Using {self.selected_mode.value.upper()} output")
+
+    def show_mode_text(self, mode_name: str, text: str, final: bool, metrics: dict) -> None:
+        mode = PerformanceMode(mode_name)
+        state = self.mode_states[mode_name]
+        if final:
+            state["finals"].append(text)
+            state["partial"] = ""
+        else:
+            state["partial"] = text
+        state["metrics"] = metrics
+        self.mode_outputs[mode].setPlainText(compose_live_transcript(
+            state["finals"], state["partial"]))
+        def value(key, suffix="", digits=2):
+            item = metrics.get(key)
+            return "n/a" if item is None else f"{item:.{digits}f}{suffix}"
+        self.mode_metrics[mode].setText(
+            f"Accuracy {value('accuracy', '%', 1)} | WER {value('wer')} | "
+            f"First {value('first_partial_latency', 's')} | "
+            f"Final {value('final_latency', 's')} | ASR {value('asr_time', 's')} | "
+            f"RTF {value('real_time_factor')} | {metrics.get('language', '—')}")
+
+    def show_mode_status(self, mode_name: str, status: str) -> None:
+        self.mode_statuses[PerformanceMode(mode_name)].setText(f"● {status}")
+
+    def show_mode_error(self, mode_name: str, message: str) -> None:
+        mode = PerformanceMode(mode_name)
+        self.mode_statuses[mode].setText("● Error")
+        self.mode_outputs[mode].setPlainText(
+            "Could not complete transcription. See debug log.\n" + message)
 
     def start_listening(self) -> None:
         self.ever_started = True
-        mode = PerformanceMode(self.performance.currentText().lower())
+        compare_all = self.display_mode.currentText() == "Compare All"
+        # Fast cadence publishes snapshots soon enough for every comparison row;
+        # each decoder still uses its own profile on the exact same ASRJob audio.
+        mode = (PerformanceMode.FAST if compare_all else
+                PerformanceMode(self.performance.currentText().lower()))
         recognition_modes = {
             "Hindi / Hinglish": "hi", "Auto": "auto", "English": "en",
         }
@@ -430,7 +543,10 @@ class MainWindow(QWidget):
         self.capture_source.setEnabled(False)
         self.translation_toggle.setEnabled(False)
         self.translation.setVisible(config.translation_enabled)
-        for update in self.controller.start_stream(config):
+        self.display_mode.setEnabled(False)
+        for mode_item in PerformanceMode:
+            self.show_mode_status(mode_item.value, "Waiting")
+        for update in self.controller.start_stream(config, compare_all):
             self.status.setText(update.message)
         self.record_started_at = time.monotonic()
         self.record_timer_label.setText("00:00")
@@ -448,6 +564,8 @@ class MainWindow(QWidget):
         self._sync_language_buttons()
         self.capture_source.setEnabled(True)
         self.translation_toggle.setEnabled(True)
+        self.display_mode.setEnabled(True)
+        self._sync_display_mode()
         self.record_timer.stop()
         self._update_record_timer()
 
@@ -489,6 +607,12 @@ class MainWindow(QWidget):
         self.current_partial = ""
         self.transcription.clear()
         self.translation.clear()
+        for mode in PerformanceMode:
+            self.mode_states[mode.value] = {"finals": [], "partial": "", "metrics": {}}
+            self.mode_outputs[mode].clear()
+            self.mode_metrics[mode].setText(
+                "Accuracy n/a | WER n/a | First n/a | Final n/a")
+            self.show_mode_status(mode.value, "Waiting")
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
         if not self.ever_started:

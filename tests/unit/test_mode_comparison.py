@@ -1,5 +1,11 @@
 from types import SimpleNamespace
+from queue import Queue
+from threading import Event
 
+import numpy as np
+
+from app.asr.asr_engine import ComparisonASRWorker
+from app.audio.audio_pipeline import ASRJob
 from app.config.settings import AppConfig, PERFORMANCE_PROFILES, PerformanceMode
 from evaluation.mode_comparison import build_comparison, render_markdown
 
@@ -41,3 +47,39 @@ def test_report_uses_measured_winners_and_side_by_side_transcripts():
     markdown = render_markdown(report)
     assert "FAST: FAST" not in markdown
     assert "fast transcript" in markdown
+
+
+class SignalRecorder:
+    def __init__(self):
+        self.values = []
+
+    def emit(self, *values):
+        self.values.append(values)
+
+
+def test_comparison_worker_fans_same_audio_to_three_isolated_modes():
+    calls = []
+
+    class Provider:
+        def get(self, config):
+            class Engine:
+                def transcribe(self, job, _context):
+                    calls.append((config.performance_mode, job.audio))
+                    if config.performance_mode is PerformanceMode.BALANCED:
+                        raise RuntimeError("isolated failure")
+                    return config.performance_mode.value, "English"
+            return Engine()
+
+    signals = SimpleNamespace(mode_text=SignalRecorder(), mode_status=SignalRecorder(),
+                              mode_error=SignalRecorder())
+    audio = np.ones(1600, dtype=np.float32)
+    queue = Queue()
+    queue.put(ASRJob(audio=audio, final=True, utterance_id=7, captured_at=0.0))
+    stop = Event()
+    stop.set()
+    ComparisonASRWorker(AppConfig(), queue, stop, signals, Provider()).run()
+
+    assert [mode for mode, _audio in calls] == list(PerformanceMode)
+    assert all(shared is audio for _mode, shared in calls)
+    assert [value[0] for value in signals.mode_text.values] == ["fast", "accurate"]
+    assert signals.mode_error.values[0][0] == "balanced"

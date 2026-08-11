@@ -40,9 +40,20 @@ python -m evaluation.mode_comparison --manifest tests/expected/transcripts.json
 The command writes measured `comparison.json`, `comparison.csv`, and `comparison.md`
 files beneath `evaluation/mode_comparison/session_TIMESTAMP/`. Reports include raw
 transcripts, English/Hindi/Hinglish accuracy, technical-term accuracy, streaming and
-resource metrics, per-metric winners, and a weighted recommendation. The GUI's
-**Comparison…** button opens the latest report; it never displays example or fabricated
-numbers.
+resource metrics, per-metric winners, and a weighted recommendation. Live rows never
+display example or fabricated numbers.
+
+The recording panel starts in **Compare All** display mode. It opens the microphone only
+once, creates one immutable partial/final audio snapshot, and schedules that snapshot
+through Fast, Balanced, and Accurate decoding off the Qt thread. Each mode has an
+independent row, status, stable-final history, replaceable live partial, and measured
+latency/resource summary. Accuracy and WER are shown as `n/a` during unreferenced live
+speech rather than being guessed.
+
+Choose **Single Mode** when lower resource use matters. In comparison mode, selecting a
+row highlights it without changing the automatic recommendation. **Copy** and **Use
+Selected Output** always use the manually selected transcript, and selections are
+appended to `evaluation/mode_comparison/user_selections.jsonl` for later profile tuning.
 
 ## Reusable library
 
