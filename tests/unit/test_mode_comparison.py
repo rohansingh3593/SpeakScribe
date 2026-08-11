@@ -83,3 +83,31 @@ def test_comparison_worker_fans_same_audio_to_three_isolated_modes():
     assert all(shared is audio for _mode, shared in calls)
     assert [value[0] for value in signals.mode_text.values] == ["fast", "accurate"]
     assert signals.mode_error.values[0][0] == "balanced"
+
+
+def test_comparison_worker_publishes_low_latency_partial_to_every_row_once():
+    calls = []
+
+    class Provider:
+        def get(self, config):
+            class Engine:
+                def transcribe(self, job, _context):
+                    calls.append((config.performance_mode, job.audio))
+                    return "live words", "Hinglish"
+            return Engine()
+
+    signals = SimpleNamespace(mode_text=SignalRecorder(), mode_status=SignalRecorder(),
+                              mode_error=SignalRecorder())
+    audio = np.ones(3200, dtype=np.float32)
+    queue = Queue()
+    queue.put(ASRJob(audio=audio, final=False, utterance_id=8, captured_at=0.0))
+    stop = Event()
+    stop.set()
+    ComparisonASRWorker(AppConfig(), queue, stop, signals, Provider()).run()
+
+    assert calls == [(PerformanceMode.FAST, audio)]
+    assert [value[:3] for value in signals.mode_text.values] == [
+        ("fast", "live words", False),
+        ("balanced", "live words", False),
+        ("accurate", "live words", False),
+    ]

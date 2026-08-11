@@ -300,6 +300,9 @@ class ComparisonASRWorker:
                     return
                 continue
             stop_empty_since = None
+            if not job.final:
+                self._decode_shared_partial(job)
+                continue
             # A single controlled worker avoids concurrent calls into the shared
             # CTranslate2 model while capture and the Qt event loop remain free.
             for mode in PerformanceMode:
@@ -331,11 +334,55 @@ class ComparisonASRWorker:
                         "language": language,
                     }
                     if text:
-                        if job.final:
-                            self.histories[mode].append(text)
-                        self.signals.mode_text.emit(mode_name, text, job.final, metrics)
+                        self.histories[mode].append(text)
+                    # Always emit finals.  An empty decoder result must replace
+                    # the placeholder with an honest, actionable state instead
+                    # of making the UI look disconnected.
+                    self.signals.mode_text.emit(mode_name, text, True, metrics)
                     self.signals.mode_status.emit(
-                        mode_name, "Complete" if job.final else "Partial")
+                        mode_name, "Complete" if text else "Complete — no speech")
                 except Exception as exc:
                     log_exception(f"ASR-{mode_name.upper()}", exc)
                     self.signals.mode_error.emit(mode_name, str(exc))
+
+    def _decode_shared_partial(self, job: ASRJob) -> None:
+        """Decode the common low-latency partial once and publish it to each row.
+
+        Live hypotheses intentionally use the same greedy/no-history policy in
+        :class:`WhisperEngine` for every profile. Repeating that identical,
+        expensive inference three times caused minute-long queue stalls. Final
+        jobs still run every distinct profile and remain the comparison result.
+        """
+        for mode in PerformanceMode:
+            self.signals.mode_status.emit(mode.value, "Processing")
+        started = time.monotonic()
+        process = Process()
+        process.cpu_percent(None)
+        try:
+            fast_config = AppConfig(**{
+                **self.config.__dict__, "performance_mode": PerformanceMode.FAST,
+            })
+            text, language = self.model_provider.get(fast_config).transcribe(job, "")
+            elapsed = time.monotonic() - started
+            duration = len(job.audio) / fast_config.sample_rate
+            metrics = {
+                "accuracy": None, "wer": None,
+                "first_partial_latency": elapsed if text else None,
+                "final_latency": None, "asr_time": elapsed,
+                "real_time_factor": elapsed / max(duration, .001),
+                "cpu_percent": process.cpu_percent(None),
+                "memory_mb": process.memory_info().rss / 1024 ** 2,
+                "language": language,
+            }
+            for mode in PerformanceMode:
+                if text:
+                    key = (job.utterance_id, mode)
+                    self.first_seen.setdefault(key, elapsed)
+                    row_metrics = {**metrics,
+                                   "first_partial_latency": self.first_seen[key]}
+                    self.signals.mode_text.emit(mode.value, text, False, row_metrics)
+                self.signals.mode_status.emit(mode.value, "Partial" if text else "Listening")
+        except Exception as exc:
+            log_exception("ASR-COMPARISON-PARTIAL", exc)
+            for mode in PerformanceMode:
+                self.signals.mode_error.emit(mode.value, str(exc))

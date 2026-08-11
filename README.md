@@ -50,6 +50,14 @@ independent row, status, stable-final history, replaceable live partial, and mea
 latency/resource summary. Accuracy and WER are shown as `n/a` during unreferenced live
 speech rather than being guessed.
 
+All profiles deliberately use the same greedy, no-history policy for unstable live
+partials. Compare All therefore decodes each partial snapshot once and publishes that
+actual hypothesis to all three independent partial states, instead of running three
+identical expensive calls and starving the final queue. Once an utterance is final, the
+same final audio is decoded separately with each mode's distinct beam/context profile.
+An empty final is displayed as an explicit “No speech was recognized” diagnostic rather
+than leaving a misleading blank placeholder.
+
 Choose **Single Mode** when lower resource use matters. In comparison mode, selecting a
 row highlights it without changing the automatic recommendation. **Copy** and **Use
 Selected Output** always use the manually selected transcript, and selections are

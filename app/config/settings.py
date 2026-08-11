@@ -37,12 +37,12 @@ PERFORMANCE_PROFILES = {
         overlap_seconds=0.20, context_sentences=1, silence_duration=0.85,
         condition_on_previous_text=False, post_processing_level="light"),
     PerformanceMode.BALANCED: DecodeProfile(
-        beam_size=3, best_of=3, temperature=0.0, partial_interval=0.40,
+        beam_size=2, best_of=2, temperature=0.0, partial_interval=0.40,
         min_partial_duration=0.80, rolling_window_seconds=5.0,
         overlap_seconds=0.35, context_sentences=2, silence_duration=1.25,
         condition_on_previous_text=True, post_processing_level="standard"),
     PerformanceMode.ACCURATE: DecodeProfile(
-        beam_size=5, best_of=5, temperature=0.0, partial_interval=0.65,
+        beam_size=3, best_of=3, temperature=0.0, partial_interval=0.65,
         min_partial_duration=1.10, rolling_window_seconds=9.0,
         overlap_seconds=0.60, context_sentences=4, silence_duration=1.65,
         condition_on_previous_text=True, post_processing_level="full"),

@@ -490,13 +490,17 @@ class MainWindow(QWidget):
         mode = PerformanceMode(mode_name)
         state = self.mode_states[mode_name]
         if final:
-            state["finals"].append(text)
+            if text:
+                state["finals"].append(text)
             state["partial"] = ""
         else:
             state["partial"] = text
         state["metrics"] = metrics
-        self.mode_outputs[mode].setPlainText(compose_live_transcript(
-            state["finals"], state["partial"]))
+        rendered = compose_live_transcript(state["finals"], state["partial"])
+        if final and not text and not rendered:
+            rendered = ("No speech was recognized for this segment. Check the capture source "
+                        "and microphone level in the ASR log.")
+        self.mode_outputs[mode].setPlainText(rendered)
         def value(key, suffix="", digits=2):
             item = metrics.get(key)
             return "n/a" if item is None else f"{item:.{digits}f}{suffix}"
