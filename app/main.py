@@ -211,9 +211,9 @@ class MainWindow(QWidget):
         self.performance.currentTextChanged.connect(
             lambda value: self.performance_label.setText(f"Performance: {value}"))
         self.display_mode = QComboBox()
-        self.display_mode.addItems(["Compare All", "Single Mode"])
+        self.display_mode.addItems(["Progressive", "Compare All", "Single Mode"])
         self.display_mode.setToolTip(
-            "Compare All shares one capture across three decoders; Single Mode uses fewer resources")
+            "Progressive replaces one live output as Fast, Balanced, then Accurate complete")
         self.script = QComboBox()
         self.script.addItems(["Original", "Latin", "Devanagari"])
         self.script.setMinimumWidth(125)
@@ -454,11 +454,13 @@ class MainWindow(QWidget):
 
     def _sync_display_mode(self, *_args) -> None:
         comparing = self.display_mode.currentText() == "Compare All"
+        progressive = self.display_mode.currentText() == "Progressive"
         self.comparison_panel.setVisible(comparing)
         self.record_output.setVisible(not comparing)
-        self.performance.setEnabled(not comparing and not self.controller.running)
+        self.performance.setEnabled(not (comparing or progressive) and not self.controller.running)
         self.performance_label.setText(
             "Performance Comparison: FAST + BALANCED + ACCURATE" if comparing else
+            "Progressive: FAST → BALANCED → ACCURATE" if progressive else
             f"Performance: {self.performance.currentText()}")
 
     @property
@@ -523,6 +525,19 @@ class MainWindow(QWidget):
         else:
             state["partial"] = text
         state["metrics"] = metrics
+        if self.display_mode.currentText() == "Progressive":
+            # Shared live partials are emitted for every comparison state; show
+            # them once. Finals arrive Fast -> Balanced -> Accurate and each
+            # stronger result intentionally replaces the preceding result.
+            if final or mode is PerformanceMode.FAST:
+                stage = mode.value.upper()
+                if text:
+                    self.transcription.setPlainText(text)
+                    if final:
+                        self.selected_mode = mode
+                self.status.setText((f"{stage} complete" if text else
+                                     f"{stage} returned no text; keeping previous output")
+                                    if final else "FAST live transcription")
         self._render_mode_comparison()
         for candidate in PerformanceMode:
             self._update_mode_metrics(candidate)
@@ -585,6 +600,8 @@ class MainWindow(QWidget):
 
     def show_mode_status(self, mode_name: str, status: str) -> None:
         self.mode_statuses[PerformanceMode(mode_name)].setText(f"● {status}")
+        if self.display_mode.currentText() == "Progressive" and status == "Processing":
+            self.status.setText(f"Processing {mode_name.upper()}…")
 
     def show_mode_error(self, mode_name: str, message: str) -> None:
         mode = PerformanceMode(mode_name)
@@ -594,10 +611,11 @@ class MainWindow(QWidget):
 
     def start_listening(self) -> None:
         self.ever_started = True
+        run_all = self.display_mode.currentText() in {"Progressive", "Compare All"}
         compare_all = self.display_mode.currentText() == "Compare All"
         # Fast cadence publishes snapshots soon enough for every comparison row;
         # each decoder still uses its own profile on the exact same ASRJob audio.
-        mode = (PerformanceMode.FAST if compare_all else
+        mode = (PerformanceMode.FAST if run_all else
                 PerformanceMode(self.performance.currentText().lower()))
         recognition_modes = {
             "Hindi / Hinglish": "hi", "Auto": "auto", "English": "en",
@@ -611,11 +629,12 @@ class MainWindow(QWidget):
                            # CPU comparison can finalize slower than capture.
                            # Never let ASR backpressure stop VAD from draining
                            # the one shared capture stream.
-                           asr_keep_latest_final=compare_all,
-                           max_audio_queue=400 if compare_all else 100,
-                           max_utterance_seconds=8.0 if compare_all else 15.0)
+                           asr_keep_latest_final=run_all,
+                           max_audio_queue=400 if run_all else 100,
+                           max_utterance_seconds=8.0 if run_all else 15.0)
         self.performance_label.setText(
             "Performance Comparison: FAST + BALANCED + ACCURATE" if compare_all else
+            "Progressive: FAST → BALANCED → ACCURATE" if run_all else
             f"Performance: {self.performance.currentText()}")
         self.status.setText("Starting…")
         self.start_button.setEnabled(False)
@@ -631,7 +650,7 @@ class MainWindow(QWidget):
         self.display_mode.setEnabled(False)
         for mode_item in PerformanceMode:
             self.show_mode_status(mode_item.value, "Waiting")
-        for update in self.controller.start_stream(config, compare_all):
+        for update in self.controller.start_stream(config, run_all):
             self.status.setText(update.message)
         self.record_started_at = time.monotonic()
         self.record_timer_label.setText("00:00")

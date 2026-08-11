@@ -43,8 +43,8 @@ transcripts, English/Hindi/Hinglish accuracy, technical-term accuracy, streaming
 resource metrics, per-metric winners, and a weighted recommendation. Live rows never
 display example or fabricated numbers.
 
-The recording panel starts in **Compare All** display mode. It opens the microphone only
-once, creates one immutable partial/final audio snapshot, and schedules that snapshot
+The **Compare All** display mode opens the microphone only once, creates one immutable
+partial/final audio snapshot, and schedules that snapshot
 through Fast, Balanced, and Accurate decoding off the Qt thread. Each mode has an
 independent row, status, stable-final history, replaceable live partial, and measured
 latency/resource summary. Accuracy and WER are shown as `n/a` during unreferenced live
@@ -74,6 +74,21 @@ word agreement. This is explicitly marked `(agreement)` because microphone speec
 known reference transcript and therefore cannot have a truthful WER or ground-truth
 accuracy percentage. Offline evaluation reports continue to show actual reference-based
 accuracy and WER. Highlighting and agreement calculations never modify the ASR text.
+
+The application now starts with the simpler **Progressive** main view. It uses the same
+single captured segment but keeps one large live output: Fast appears first, remains
+visible while Balanced is processing, is replaced by Balanced when ready, and is finally
+replaced by Accurate when ready. If a later stage returns no text, the last useful output
+is retained. The status line always identifies the mode currently processing.
+
+The complete three-row UI remains available as a named example template:
+
+```bash
+python -m examples.performance_comparison_template
+```
+
+Select **Compare All** in the main Display control at any time to return to that template,
+or choose **Single Mode** to minimize CPU use.
 
 ## Reusable library
 
