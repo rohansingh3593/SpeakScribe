@@ -130,3 +130,24 @@ def test_mode_queue_final_evicts_partials_but_preserves_older_finals():
     assert queue.get_nowait() is older_final
     assert queue.get_nowait() is newest_final
     assert queue.empty()
+
+
+def test_empty_partial_returns_to_listening_instead_of_blank_partial_cell():
+    class Provider:
+        def get(self, _config):
+            return SimpleNamespace(transcribe=lambda _job, _context: ("", "English"))
+
+    signals = SimpleNamespace(mode_text=SignalRecorder(), mode_status=SignalRecorder(),
+                              mode_error=SignalRecorder())
+    queue = Queue()
+    queue.put(ASRJob(np.ones(10, dtype=np.float32), False, 9, 0.0))
+    stop = Event(); stop.set()
+
+    ComparisonASRWorker(AppConfig(), queue, stop, signals, Provider()).run()
+
+    assert signals.mode_text.values == []
+    assert {(item[0], item[1], item[2]) for item in signals.mode_status.values
+            if item[2] == "Listening"} == {
+        (9, "fast", "Listening"), (9, "balanced", "Listening"),
+        (9, "accurate", "Listening"),
+    }

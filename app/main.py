@@ -583,7 +583,8 @@ class MainWindow(QWidget):
         for column, mode in enumerate(PerformanceMode, 1):
             data = state["modes"][mode.value]
             if data["raw"] is not None:
-                body = highlighted.get(mode.value, escape(data["raw"])) or "<i>No speech</i>"
+                body = (highlighted.get(mode.value, escape(data["raw"])) or
+                        "<i>No speech recognized for this audio segment.</i>")
             elif data["partial"]:
                 body = escape(data["partial"])
             else:
@@ -654,6 +655,8 @@ class MainWindow(QWidget):
     def show_mode_status(self, segment_id: int, mode_name: str, status: str) -> None:
         state = self._ensure_segment(segment_id)
         state["modes"][mode_name]["status"] = status.upper()
+        if status.upper() == "LISTENING":
+            state["modes"][mode_name]["partial"] = ""
         self._render_segment(segment_id)
 
     def show_mode_error(self, segment_id: int, mode_name: str, message: str) -> None:

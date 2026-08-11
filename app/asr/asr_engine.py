@@ -55,8 +55,12 @@ class WhisperEngine:
         last_error = None
         for device, compute in candidates:
             try:
+                # Three bounded mode workers share this model. CTranslate2's
+                # worker pool must match that concurrency; with the default of
+                # one, Balanced/Accurate calls sat behind partial inference and
+                # the table appeared permanently empty.
                 model = WhisperModel(self.config.model_size, device=device,
-                                     compute_type=compute)
+                                     compute_type=compute, num_workers=3)
                 LOGGER.debug(f"Model loaded: device={device} compute={compute} "
                           f"seconds={time.monotonic() - started:.2f}")
                 return model
@@ -365,11 +369,16 @@ class ComparisonASRWorker:
                     "language": language, "start_time": job.audio_start_time,
                     "end_time": job.audio_end_time,
                 }
-                self.signals.mode_text.emit(
-                    job.utterance_id, mode.value, text, job.final, metrics)
+                if text or job.final:
+                    self.signals.mode_text.emit(
+                        job.utterance_id, mode.value, text, job.final, metrics)
+                if job.final:
+                    LOGGER.info(
+                        "Comparison final | segment=%s mode=%s text=%r inference=%.2fs",
+                        job.utterance_id, mode.value, text, elapsed)
                 self.signals.mode_status.emit(
                     job.utterance_id, mode.value,
-                    "Final" if job.final else "Partial")
+                    "Final" if job.final else "Partial" if text else "Listening")
             except Exception as exc:
                 log_exception(f"ASR-{mode.value.upper()}", exc)
                 self.signals.mode_error.emit(job.utterance_id, mode.value, str(exc))

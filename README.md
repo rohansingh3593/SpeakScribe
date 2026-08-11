@@ -70,6 +70,8 @@ The previous three-row layout remains available only as a named example template
 
 ```bash
 python -m examples.performance_comparison_template
+# Direct source-checkout invocation is also supported:
+python examples/performance_comparison_template.py
 ```
 
 
