@@ -3,7 +3,7 @@
 import pytest
 
 
-from tests.fixtures.pytest_observability import PytestObserver
+from tests.fixtures.pytest_observability import PytestObserver, _artifact_error
 
 
 def pytest_addoption(parser):
@@ -44,14 +44,23 @@ def pytest_runtest_teardown(item):
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
-    item.config._speakscribe_observer.phase_report(item, outcome.get_result(), call)
+    observer = item.config._speakscribe_observer
+    try:
+        observer.phase_report(item, outcome.get_result(), call)
+    except Exception as exc:
+        # Test reporting is best-effort. It must never convert test results into
+        # pytest INTERNALERROR, including Windows MAX_PATH and antivirus races.
+        _artifact_error(observer, item.nodeid, exc)
 
 
 def pytest_sessionfinish(session, exitstatus):
     global _ACTIVE_OBSERVER
     observer = getattr(session.config, "_speakscribe_observer", None)
     if observer is not None:
-        observer.finish(exitstatus)
+        try:
+            observer.finish(exitstatus)
+        except Exception as exc:
+            _artifact_error(observer, "SESSION FINISH", exc)
     _ACTIVE_OBSERVER = None
 
 

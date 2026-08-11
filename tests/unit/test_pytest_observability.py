@@ -82,7 +82,7 @@ def test_long_unicode_parameter_ids_produce_short_unique_windows_safe_names(tmp_
     first = _artifact_stem(escaped_hindi, directory, "__main.log")
     second = _artifact_stem(other_case, directory, "__main.log")
 
-    assert len(_safe(escaped_hindi)) <= 72
+    assert len(_safe(escaped_hindi)) <= 48
     assert first != second
     assert len(str(directory / f"{first}__main.log")) <= 235
 

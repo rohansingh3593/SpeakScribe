@@ -16,7 +16,7 @@ import sys
 import time
 
 
-def _safe(value: str, max_length: int = 72) -> str:
+def _safe(value: str, max_length: int = 48) -> str:
     """Return a Windows-safe, bounded, collision-resistant path component."""
     value = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_")
     value = value or "unnamed"
@@ -26,11 +26,19 @@ def _safe(value: str, max_length: int = 72) -> str:
     return f"{value[:max_length - len(digest) - 2]}__{digest}"
 
 
-def _artifact_stem(value: str, directory: Path, suffix: str = "") -> str:
-    """Budget a filename so normal Windows paths remain below MAX_PATH."""
-    # Keep headroom for drive normalization and temporary suffixes used by tools.
-    available = 235 - len(str(directory.resolve())) - len(suffix) - 1
-    return _safe(value, max(24, min(72, available)))
+def _artifact_stem(value: str, _directory: Path, _suffix: str = "") -> str:
+    """Create a compact deterministic filename independent of checkout depth."""
+    return _safe(value, 48)
+
+
+def _artifact_error(observer, context: str, exc: BaseException) -> None:
+    """Report an observer failure without ever aborting the pytest run."""
+    logging.getLogger(__name__).error(
+        "Pytest observability disabled for %s: %s", context, exc, exc_info=True)
+    try:
+        observer.info(f"OBSERVABILITY ERROR | {context} | {exc}")
+    except Exception:
+        pass
 
 
 @dataclass
@@ -206,15 +214,10 @@ class PytestObserver:
         if report.when == "teardown":
             try:
                 self.finish_test(record)
-            except OSError as exc:
+            except Exception as exc:
                 # Artifact collection must never turn a valid pytest run into an
                 # INTERNALERROR. Preserve the failure in the session log when possible.
-                logging.getLogger(__name__).exception(
-                    "Unable to write observability artifact for %s", record.nodeid)
-                try:
-                    self.info(f"OBSERVABILITY ERROR | {record.nodeid} | {exc}")
-                except OSError:
-                    pass
+                _artifact_error(self, record.nodeid, exc)
 
     def _category(self, record, status):
         failed_phase = next((name for name, value in record.phases.items()
