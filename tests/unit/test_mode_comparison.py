@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from queue import Queue
 from threading import Event
+import time
 
 import numpy as np
 
@@ -31,6 +32,8 @@ def test_profiles_are_distinct_and_balanced_is_default():
     assert fast.partial_interval < balanced.partial_interval < accurate.partial_interval
     assert fast.context_sentences < balanced.context_sentences < accurate.context_sentences
     assert fast.profile.beam_size < balanced.profile.beam_size < accurate.profile.beam_size
+    assert fast.profile.model_size == "base"
+    assert balanced.profile.model_size == accurate.profile.model_size == "small"
 
 
 def test_report_uses_measured_winners_and_side_by_side_transcripts():
@@ -153,3 +156,25 @@ def test_empty_partial_returns_to_listening_instead_of_blank_partial_cell():
         (9, "fast", "Listening"), (9, "balanced", "Listening"),
         (9, "accurate", "Listening"),
     }
+
+
+def test_results_older_than_live_deadline_are_expired_without_decoding():
+    calls = []
+
+    class Provider:
+        def get(self, _config):
+            return SimpleNamespace(
+                transcribe=lambda _job, _context: calls.append(True) or ("late", "English"))
+
+    signals = SimpleNamespace(mode_text=SignalRecorder(), mode_status=SignalRecorder(),
+                              mode_error=SignalRecorder())
+    queue = Queue()
+    queue.put(ASRJob(np.ones(10, dtype=np.float32), True, 10,
+                     time.monotonic() - 21.0))
+    stop = Event(); stop.set()
+
+    ComparisonASRWorker(AppConfig(), queue, stop, signals, Provider()).run()
+
+    assert calls == []
+    assert signals.mode_text.values == []
+    assert {item[2] for item in signals.mode_status.values} == {"Expired"}

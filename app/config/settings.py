@@ -26,6 +26,7 @@ class DecodeProfile:
     silence_duration: float
     condition_on_previous_text: bool
     post_processing_level: str
+    model_size: str
 
 
 PERFORMANCE_PROFILES = {
@@ -35,17 +36,17 @@ PERFORMANCE_PROFILES = {
         beam_size=1, best_of=1, temperature=0.0, partial_interval=0.25,
         min_partial_duration=0.55, rolling_window_seconds=3.0,
         overlap_seconds=0.20, context_sentences=1, silence_duration=0.85,
-        condition_on_previous_text=False, post_processing_level="light"),
+        condition_on_previous_text=False, post_processing_level="light", model_size="base"),
     PerformanceMode.BALANCED: DecodeProfile(
         beam_size=2, best_of=2, temperature=0.0, partial_interval=0.40,
         min_partial_duration=0.80, rolling_window_seconds=5.0,
         overlap_seconds=0.35, context_sentences=2, silence_duration=1.25,
-        condition_on_previous_text=True, post_processing_level="standard"),
+        condition_on_previous_text=True, post_processing_level="standard", model_size="small"),
     PerformanceMode.ACCURATE: DecodeProfile(
         beam_size=3, best_of=3, temperature=0.0, partial_interval=0.65,
         min_partial_duration=1.10, rolling_window_seconds=9.0,
         overlap_seconds=0.60, context_sentences=4, silence_duration=1.65,
-        condition_on_previous_text=True, post_processing_level="full"),
+        condition_on_previous_text=True, post_processing_level="full", model_size="small"),
 }
 
 # Backwards-compatible name for integrations which imported the old table.
@@ -104,6 +105,7 @@ class AppConfig:
     # selected mode, keep the newest completed segment rather than blocking VAD
     # and eventually overflowing the raw capture queue behind an obsolete final.
     asr_keep_latest_final: bool = False
+    max_result_latency_seconds: float = 20.0
     context_sentences: int = 2
     # `small` is the minimum production default with reliable multilingual
     # capacity; `base` caused broad Hindi/Hinglish degradation in real runs.

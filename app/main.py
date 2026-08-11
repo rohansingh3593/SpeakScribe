@@ -69,6 +69,9 @@ class SpeechController:
             try:
                 self.signals.status_changed.emit("Loading speech model…")
                 self.model_provider.get(AppConfig())
+                fast_config = AppConfig(performance_mode=PerformanceMode.FAST)
+                fast_config.model_size = fast_config.profile.model_size
+                self.model_provider.get(fast_config)
                 self.signals.status_changed.emit("Ready")
             except Exception as exc:
                 log_exception("MODEL-PRELOAD", exc)
@@ -192,6 +195,7 @@ class MainWindow(QWidget):
         self.ever_started = False
         self.record_started_at: float | None = None
         self.last_processing_refresh = 0.0
+        self.live_result_deadline = AppConfig().max_result_latency_seconds
         self.record_timer = QTimer(self)
         self.record_timer.setInterval(250)
         self.record_timer.timeout.connect(self._update_record_timer)
@@ -613,17 +617,24 @@ class MainWindow(QWidget):
         for mode in PerformanceMode:
             data = state["modes"][mode.value]
             if data["status"] == "PROCESSING" and data["processing_started"] is not None:
-                timing.append(
-                    f'{mode.value.upper()} processing '
-                    f'{format_processing_duration(now - data["processing_started"])} elapsed')
+                elapsed = now - data["processing_started"]
+                if elapsed >= self.live_result_deadline:
+                    timing.append(
+                        f'{mode.value.upper()} exceeded '
+                        f'{format_processing_duration(self.live_result_deadline)}; '
+                        'late update will be ignored')
+                else:
+                    timing.append(
+                        f'{mode.value.upper()} processing '
+                        f'{format_processing_duration(elapsed)} elapsed')
             elif data["latency"] is not None:
                 timing.append(
                     f'{mode.value.upper()} took {format_processing_duration(data["latency"])}')
         timing_text = " · ".join(timing) or "waiting for first result"
         if not display_text:
             statuses = {item["status"] for item in state["modes"].values()}
-            body = ("<i>No valid speech recognized for this segment.</i>"
-                    if statuses <= {"FINAL", "ERROR"} else
+            body = ("<i>No result arrived within the 20-second live-update limit.</i>"
+                    if statuses <= {"FINAL", "ERROR", "EXPIRED"} else
                     f"<i>Processing speech…</i><br><small>{timing_text}</small>")
         else:
             badge = source.value.upper()
@@ -703,7 +714,7 @@ class MainWindow(QWidget):
         mode_state["status"] = status.upper()
         if status.upper() == "PROCESSING" and mode_state["processing_started"] is None:
             mode_state["processing_started"] = time.monotonic()
-        elif status.upper() in {"FINAL", "ERROR", "LISTENING", "PARTIAL"}:
+        elif status.upper() in {"FINAL", "ERROR", "EXPIRED", "LISTENING", "PARTIAL"}:
             mode_state["processing_started"] = None
         if status.upper() == "LISTENING":
             mode_state["partial"] = ""
@@ -738,7 +749,7 @@ class MainWindow(QWidget):
                            asr_keep_latest_final=False,
                            max_audio_queue=400 if run_all else 100,
                            max_asr_queue=8,
-                           max_utterance_seconds=8.0 if run_all else 15.0)
+                           max_utterance_seconds=4.0 if run_all else 15.0)
         self.performance_label.setText("FAST + BALANCED + ACCURATE — shared audio segments")
         self.status.setText("Starting…")
         self.start_button.setEnabled(False)

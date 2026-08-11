@@ -55,12 +55,12 @@ class WhisperEngine:
         last_error = None
         for device, compute in candidates:
             try:
-                # Three bounded mode workers share this model. CTranslate2's
-                # worker pool must match that concurrency; with the default of
-                # one, Balanced/Accurate calls sat behind partial inference and
-                # the table appeared permanently empty.
+                # Fast owns the lightweight base model; Balanced and Accurate
+                # share small. Match those actual call counts instead of
+                # oversubscribing CPU with three workers per model.
+                model_workers = 1 if self.config.model_size == "base" else 2
                 model = WhisperModel(self.config.model_size, device=device,
-                                     compute_type=compute, num_workers=3)
+                                     compute_type=compute, num_workers=model_workers)
                 LOGGER.debug(f"Model loaded: device={device} compute={compute} "
                           f"seconds={time.monotonic() - started:.2f}")
                 return model
@@ -346,23 +346,35 @@ class ComparisonASRWorker:
 
     def _run_mode(self, mode: PerformanceMode, queue: Queue) -> None:
         config = AppConfig(**{**self.config.__dict__, "performance_mode": mode})
+        config.model_size = config.profile.model_size
         engine = self.model_provider.get(config)
         process = Process()
         while True:
             job = queue.get()
             if job is None:
                 return
+            queued_for = (time.monotonic() - job.captured_at
+                          if job.captured_at > 0 else 0.0)
+            if queued_for >= config.max_result_latency_seconds:
+                LOGGER.warning("Expired ASR job before decode | segment=%s mode=%s age=%.2fs",
+                               job.utterance_id, mode.value, queued_for)
+                self.signals.mode_status.emit(job.utterance_id, mode.value, "Expired")
+                continue
             self.signals.mode_status.emit(job.utterance_id, mode.value, "Processing")
             started = time.monotonic()
             try:
                 text, language = engine.transcribe(job, " ".join(self.histories[mode]))
                 elapsed = time.monotonic() - started
-                result_latency = time.monotonic() - job.captured_at
+                result_latency = (time.monotonic() - job.captured_at
+                                  if job.captured_at > 0 else elapsed)
                 duration = len(job.audio) / config.sample_rate
-                if text and job.final:
+                expired = result_latency >= config.max_result_latency_seconds
+                if text and job.final and not expired:
                     self.histories[mode].append(text)
                 metrics = {
-                    "asr_time": elapsed, "queue_delay": max(0.0, started - job.captured_at),
+                    "asr_time": elapsed,
+                    "queue_delay": (max(0.0, started - job.captured_at)
+                                    if job.captured_at > 0 else 0.0),
                     "result_latency": result_latency,
                     "final_latency": result_latency if job.final else None,
                     "first_partial_latency": result_latency if not job.final and text else None,
@@ -372,15 +384,21 @@ class ComparisonASRWorker:
                     "language": language, "start_time": job.audio_start_time,
                     "end_time": job.audio_end_time,
                 }
-                if text or job.final:
+                if not expired and (text or job.final):
                     self.signals.mode_text.emit(
                         job.utterance_id, mode.value, text, job.final, metrics)
+                if expired:
+                    LOGGER.warning(
+                        "Discarded late ASR result | segment=%s mode=%s latency=%.2fs limit=%.2fs",
+                        job.utterance_id, mode.value, result_latency,
+                        config.max_result_latency_seconds)
                 if job.final:
                     LOGGER.info(
                         "Comparison final | segment=%s mode=%s text=%r inference=%.2fs",
                         job.utterance_id, mode.value, text, elapsed)
                 self.signals.mode_status.emit(
                     job.utterance_id, mode.value,
+                    "Expired" if expired else
                     "Final" if job.final else "Partial" if text else "Listening")
             except Exception as exc:
                 log_exception(f"ASR-{mode.value.upper()}", exc)

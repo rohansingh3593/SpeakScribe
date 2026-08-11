@@ -60,6 +60,12 @@ end-to-end result latency (queue delay plus inference), so the UI never presents
 ETA as if it were measured. Every duration is printed in both seconds and milliseconds,
 for example `0.42s (421ms)`.
 
+Live refinement has a hard 20-second freshness deadline. A queued job already older than
+that limit is skipped, and a result that completes after the limit is logged but never
+allowed to replace visible text. Fast uses the multilingual `base` model and comparison
+segments are capped at four seconds to improve CPU responsiveness; Balanced/Accurate keep
+the stronger `small` model. The preload thread warms both weight sets before capture.
+
 All finalized segments remain visible and scroll vertically without three duplicated
 mode columns. Copy produces the promoted combined script in audio order. Conservative
 boundary cleanup removes only a multi-word overlap between adjacent timestamps; raw Fast,
