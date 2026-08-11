@@ -1,4 +1,6 @@
-from tests.fixtures.pytest_observability import PytestObserver, TestRecord as ObservationRecord
+from tests.fixtures.pytest_observability import (
+    PytestObserver, TestRecord as ObservationRecord, _artifact_stem, _safe,
+)
 
 
 class Config:
@@ -71,3 +73,35 @@ def test_recorded_asr_failure_writes_evidence_without_changing_result(monkeypatc
     assert "EXPECTED:\nकाम" in detail
     assert "ACTUAL:\nkaam" in detail
     assert (observer.path / "artifacts/metrics/HI-EDGE-121__main.json").is_file()
+
+
+def test_long_unicode_parameter_ids_produce_short_unique_windows_safe_names(tmp_path):
+    escaped_hindi = "test_live_partial_" + "_u0906_u091c_u092e_u0948_u0902" * 12
+    other_case = escaped_hindi + "_different"
+    directory = tmp_path / "session_2026-08-11_16-47-51" / "success" / "tests"
+    first = _artifact_stem(escaped_hindi, directory, "__main.log")
+    second = _artifact_stem(other_case, directory, "__main.log")
+
+    assert len(_safe(escaped_hindi)) <= 72
+    assert first != second
+    assert len(str(directory / f"{first}__main.log")) <= 235
+
+
+def test_artifact_io_failure_does_not_raise_pytest_internal_error(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    observer = PytestObserver(Config())
+    record = ObservationRecord("node", 1, "test_x.py", "-", "test_x", "now", 0)
+    observer.records["node"] = record
+    monkeypatch.setattr(observer, "finish_test", lambda _record: (_ for _ in ()).throw(
+        OSError("path too long")))
+    report = type("Report", (), {
+        "sections": [], "when": "teardown", "outcome": "passed",
+        "duration": 0.01, "failed": False, "longrepr": "",
+    })()
+    item = type("Item", (), {
+        "nodeid": "node", "path": "test_x.py", "cls": None, "name": "test_x",
+    })()
+
+    observer.phase_report(item, report)
+    assert "OBSERVABILITY ERROR | node" in (
+        observer.path / "session.log").read_text(encoding="utf-8")

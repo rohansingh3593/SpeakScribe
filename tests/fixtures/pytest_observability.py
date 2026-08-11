@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime
+import hashlib
 import json
 import logging
 import os
@@ -15,9 +16,21 @@ import sys
 import time
 
 
-def _safe(value: str) -> str:
+def _safe(value: str, max_length: int = 72) -> str:
+    """Return a Windows-safe, bounded, collision-resistant path component."""
     value = re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_")
-    return value[:160] or "unnamed"
+    value = value or "unnamed"
+    if len(value) <= max_length:
+        return value
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    return f"{value[:max_length - len(digest) - 2]}__{digest}"
+
+
+def _artifact_stem(value: str, directory: Path, suffix: str = "") -> str:
+    """Budget a filename so normal Windows paths remain below MAX_PATH."""
+    # Keep headroom for drive normalization and temporary suffixes used by tools.
+    available = 235 - len(str(directory.resolve())) - len(suffix) - 1
+    return _safe(value, max(24, min(72, available)))
 
 
 @dataclass
@@ -191,7 +204,17 @@ class PytestObserver:
         self.info(f"PHASE | {record.nodeid} | {report.when.upper()} | "
                   f"{report.outcome.upper()} | {report.duration:.3f}s")
         if report.when == "teardown":
-            self.finish_test(record)
+            try:
+                self.finish_test(record)
+            except OSError as exc:
+                # Artifact collection must never turn a valid pytest run into an
+                # INTERNALERROR. Preserve the failure in the session log when possible.
+                logging.getLogger(__name__).exception(
+                    "Unable to write observability artifact for %s", record.nodeid)
+                try:
+                    self.info(f"OBSERVABILITY ERROR | {record.nodeid} | {exc}")
+                except OSError:
+                    pass
 
     def _category(self, record, status):
         failed_phase = next((name for name, value in record.phases.items()
@@ -226,7 +249,11 @@ class PytestObserver:
         duration = time.perf_counter() - record.started_clock
         category = self._category(record, status)
         test_id = record.metadata.get("id", record.function)
-        filename = f"{_safe(test_id)}__{os.getenv('PYTEST_XDIST_WORKER', 'main')}.log"
+        worker = os.getenv("PYTEST_XDIST_WORKER", "main")
+        test_directory = self.path / ("failed" if hard else "success") / "tests"
+        filename_stem = _artifact_stem(
+            str(test_id), test_directory, f"__{worker}.log")
+        filename = f"{filename_stem}__{worker}.log"
         expected, actual = evaluation.get("expected", ""), evaluation.get("actual", "")
         details = [
             f"SESSION ID: {self.session_id}", f"NODE ID: {record.nodeid}",
@@ -260,9 +287,13 @@ class PytestObserver:
             "", "CAPTURED REPOSITORY LOGS:", *record.repository_logs,
             "", "PYTEST WARNINGS:", *self.warnings.get(record.nodeid, []),
         ]
-        destination = self.path / ("failed" if hard else "success") / "tests" / filename
+        destination = test_directory / filename
         destination.write_text("\n".join(map(str, details)) + "\n", encoding="utf-8")
-        artifact = _safe(test_id) + f"__{os.getenv('PYTEST_XDIST_WORKER', 'main')}"
+        metrics_directory = self.path / "artifacts/metrics"
+        longest_artifact_directory = self.path / "artifacts/expected_transcripts"
+        artifact = _artifact_stem(
+            str(test_id), longest_artifact_directory, f"__{worker}.json"
+        ) + f"__{worker}"
         (self.path / "artifacts/expected_transcripts" / f"{artifact}.txt").write_text(str(expected), encoding="utf-8")
         (self.path / "artifacts/actual_transcripts" / f"{artifact}.txt").write_text(str(actual), encoding="utf-8")
         metrics = {"test_id": test_id, "nodeid": record.nodeid, "status": status,
@@ -350,7 +381,9 @@ class PytestObserver:
                               f"Failed: {sum(x['status']=='FAIL' for x in items)}",
                               f"Errors: {sum(x['status'] in {'ERROR','CRASH','TIMEOUT'} for x in items)}",
                               f"Duration: {sum(x.get('total_duration',0) for x in items):.3f}s"]) + "\n"
-            target = self.path / ("failed" if hard else "success") / directory / f"{_safe(value)}.log"
+            target_directory = self.path / ("failed" if hard else "success") / directory
+            target_stem = _artifact_stem(str(value), target_directory, ".log")
+            target = target_directory / f"{target_stem}.log"
             target.write_text(text, encoding="utf-8")
             self.info(f"{key.upper()} END | {value} | passed={sum(x['status']=='PASS' for x in items)} "
                       f"failed={sum(x['status']=='FAIL' for x in items)} "
