@@ -620,9 +620,9 @@ class MainWindow(QWidget):
                 elapsed = now - data["processing_started"]
                 if elapsed >= self.live_result_deadline:
                     timing.append(
-                        f'{mode.value.upper()} exceeded '
+                        f'{mode.value.upper()} is still processing after '
                         f'{format_processing_duration(self.live_result_deadline)}; '
-                        'late update will be ignored')
+                        'result will appear when ready')
                 else:
                     timing.append(
                         f'{mode.value.upper()} processing '
@@ -633,8 +633,8 @@ class MainWindow(QWidget):
         timing_text = " · ".join(timing) or "waiting for first result"
         if not display_text:
             statuses = {item["status"] for item in state["modes"].values()}
-            body = ("<i>No result arrived within the 20-second live-update limit.</i>"
-                    if statuses <= {"FINAL", "ERROR", "EXPIRED"} else
+            body = ("<i>No speech was recognized in this segment.</i>"
+                    if statuses <= {"FINAL", "ERROR"} else
                     f"<i>Processing speech…</i><br><small>{timing_text}</small>")
         else:
             badge = source.value.upper()

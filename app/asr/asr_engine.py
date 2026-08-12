@@ -381,13 +381,6 @@ class ComparisonASRWorker:
             job = queue.get()
             if job is None:
                 return
-            queued_for = (time.monotonic() - job.captured_at
-                          if job.captured_at > 0 else 0.0)
-            if queued_for >= config.max_result_latency_seconds:
-                LOGGER.warning("Expired ASR job before decode | segment=%s mode=%s age=%.2fs",
-                               job.utterance_id, mode.value, queued_for)
-                self.signals.mode_status.emit(job.utterance_id, mode.value, "Expired")
-                continue
             self.signals.mode_status.emit(job.utterance_id, mode.value, "Processing")
             started = time.monotonic()
             try:
@@ -396,8 +389,8 @@ class ComparisonASRWorker:
                 result_latency = (time.monotonic() - job.captured_at
                                   if job.captured_at > 0 else elapsed)
                 duration = len(job.audio) / config.sample_rate
-                expired = result_latency >= config.max_result_latency_seconds
-                if text and job.final and not expired:
+                late = result_latency >= config.max_result_latency_seconds
+                if text and job.final:
                     self.histories[mode].append(text)
                 metrics = {
                     "asr_time": elapsed,
@@ -412,12 +405,17 @@ class ComparisonASRWorker:
                     "language": language, "start_time": job.audio_start_time,
                     "end_time": job.audio_end_time,
                 }
-                if not expired and (text or job.final):
+                # The latency target is diagnostic, not a destructive timeout.
+                # Slow CPU inference cannot be cancelled safely, so throwing its
+                # eventual transcript away leaves a permanent blank row after
+                # the user has already waited for it.
+                if text or job.final:
                     self.signals.mode_text.emit(
                         job.utterance_id, mode.value, text, job.final, metrics)
-                if expired:
+                if late:
                     LOGGER.warning(
-                        "Discarded late ASR result | segment=%s mode=%s latency=%.2fs limit=%.2fs",
+                        "ASR result exceeded latency target but was retained | "
+                        "segment=%s mode=%s latency=%.2fs target=%.2fs",
                         job.utterance_id, mode.value, result_latency,
                         config.max_result_latency_seconds)
                 if job.final:
@@ -426,7 +424,6 @@ class ComparisonASRWorker:
                         job.utterance_id, mode.value, text, elapsed)
                 self.signals.mode_status.emit(
                     job.utterance_id, mode.value,
-                    "Expired" if expired else
                     "Final" if job.final else "Partial" if text else "Listening")
             except Exception as exc:
                 log_exception(f"ASR-{mode.value.upper()}", exc)

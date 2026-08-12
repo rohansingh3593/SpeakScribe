@@ -170,7 +170,7 @@ def test_empty_partial_returns_to_listening_instead_of_blank_partial_cell():
             if item[2] == "Listening"} == {(9, "fast", "Listening")}
 
 
-def test_results_older_than_live_deadline_are_expired_without_decoding():
+def test_results_older_than_latency_target_are_still_decoded_and_displayed():
     calls = []
 
     class Provider:
@@ -187,6 +187,9 @@ def test_results_older_than_live_deadline_are_expired_without_decoding():
 
     ComparisonASRWorker(AppConfig(), queue, stop, signals, Provider()).run()
 
-    assert calls == []
-    assert signals.mode_text.values == []
-    assert {item[2] for item in signals.mode_status.values} == {"Expired"}
+    assert len(calls) == len(PerformanceMode)
+    assert {item[1] for item in signals.mode_text.values} == {
+        "fast", "balanced", "accurate"}
+    assert all(item[2] == "late" and item[3] is True
+               for item in signals.mode_text.values)
+    assert {item[2] for item in signals.mode_status.values} == {"Processing", "Final"}
