@@ -88,7 +88,7 @@ def test_comparison_worker_fans_same_audio_to_three_isolated_modes():
     assert signals.mode_error.values[0][1] == "balanced"
 
 
-def test_comparison_worker_runs_each_mode_for_the_same_partial_segment():
+def test_comparison_worker_runs_live_partials_in_fast_mode_only():
     calls = []
 
     class Provider:
@@ -108,13 +108,11 @@ def test_comparison_worker_runs_each_mode_for_the_same_partial_segment():
     stop.set()
     ComparisonASRWorker(AppConfig(), queue, stop, signals, Provider()).run()
 
-    assert {mode for mode, _audio in calls} == set(PerformanceMode)
+    assert {mode for mode, _audio in calls} == {PerformanceMode.FAST}
     assert all(shared is audio for _mode, shared in calls)
     assert {(value[0], value[1], value[2], value[3])
             for value in signals.mode_text.values} == {
         (8, "fast", "live words", False),
-        (8, "balanced", "live words", False),
-        (8, "accurate", "live words", False),
     }
     assert all("result_latency" in value[4] and "queue_delay" in value[4]
                for value in signals.mode_text.values)
@@ -137,6 +135,23 @@ def test_mode_queue_final_evicts_partials_but_preserves_older_finals():
     assert queue.empty()
 
 
+def test_mode_queue_partial_replaces_obsolete_partials_and_preserves_finals():
+    queue = Queue(maxsize=8)
+    audio = np.ones(10, dtype=np.float32)
+    older_final = ASRJob(audio, True, 1, 0.0)
+    stale_partial = ASRJob(audio, False, 2, 0.0)
+    newest_partial = ASRJob(audio, False, 2, 0.0)
+    queue.put(older_final)
+    queue.put(stale_partial)
+
+    ComparisonASRWorker._enqueue_mode_job(
+        PerformanceMode.FAST, queue, newest_partial)
+
+    assert queue.get_nowait() is older_final
+    assert queue.get_nowait() is newest_partial
+    assert queue.empty()
+
+
 def test_empty_partial_returns_to_listening_instead_of_blank_partial_cell():
     class Provider:
         def get(self, _config):
@@ -152,10 +167,7 @@ def test_empty_partial_returns_to_listening_instead_of_blank_partial_cell():
 
     assert signals.mode_text.values == []
     assert {(item[0], item[1], item[2]) for item in signals.mode_status.values
-            if item[2] == "Listening"} == {
-        (9, "fast", "Listening"), (9, "balanced", "Listening"),
-        (9, "accurate", "Listening"),
-    }
+            if item[2] == "Listening"} == {(9, "fast", "Listening")}
 
 
 def test_results_older_than_live_deadline_are_expired_without_decoding():
