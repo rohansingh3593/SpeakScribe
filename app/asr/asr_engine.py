@@ -287,7 +287,7 @@ class ASRWorker:
 
 
 class ComparisonASRWorker:
-    """Decode each immutable ASR snapshot under all profiles off the GUI thread."""
+    """Decode live snapshots quickly and refine final audio under all profiles."""
 
     def __init__(self, config: AppConfig, queue: Queue, stop_event: Event, signals,
                  model_provider: WhisperModelProvider):
@@ -316,7 +316,13 @@ class ComparisonASRWorker:
                     break
                 continue
             stop_empty_since = None
-            for mode, mode_queue in queues.items():
+            # Live hypotheses are latency-sensitive and are only useful from the
+            # FAST profile.  The larger profiles still receive every final so
+            # they can refine the completed segment without competing with FAST
+            # for each rolling snapshot.
+            target_queues = (queues.items() if job.final else
+                             ((PerformanceMode.FAST, queues[PerformanceMode.FAST]),))
+            for mode, mode_queue in target_queues:
                 self._enqueue_mode_job(mode, mode_queue, job)
         for mode_queue in queues.values():
             mode_queue.put(None)
@@ -325,24 +331,35 @@ class ComparisonASRWorker:
 
     @staticmethod
     def _enqueue_mode_job(mode: PerformanceMode, queue: Queue, job: ASRJob) -> None:
-        if job.final:
-            retained_finals = []
-            while True:
-                try:
-                    pending = queue.get_nowait()
-                except Empty:
-                    break
-                if pending.final:
-                    retained_finals.append(pending)
-            for pending in retained_finals:
-                queue.put(pending)
-            queue.put(job)
-            return
+        retained_finals = []
+        coalesced_partials = 0
+        while True:
+            try:
+                pending = queue.get_nowait()
+            except Empty:
+                break
+            if pending.final:
+                retained_finals.append(pending)
+            else:
+                coalesced_partials += 1
+
+        for pending in retained_finals:
+            queue.put_nowait(pending)
+
         try:
             queue.put_nowait(job)
         except Full:
-            LOGGER.debug("Dropped stale partial | mode=%s segment=%s",
-                         mode.value, job.utterance_id)
+            # A queue containing only finals must not lose one merely to show a
+            # transient hypothesis. Finals are drained by the mode worker.
+            if not job.final:
+                LOGGER.debug("Dropped partial behind queued finals | mode=%s segment=%s",
+                             mode.value, job.utterance_id)
+                return
+            queue.put(job)
+
+        if coalesced_partials:
+            LOGGER.debug("Coalesced stale partials | mode=%s segment=%s count=%s",
+                         mode.value, job.utterance_id, coalesced_partials)
 
     def _run_mode(self, mode: PerformanceMode, queue: Queue) -> None:
         config = AppConfig(**{**self.config.__dict__, "performance_mode": mode})
