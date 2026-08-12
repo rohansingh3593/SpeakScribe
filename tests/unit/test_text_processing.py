@@ -24,6 +24,14 @@ def test_hindi_script_metadata_classifies_devanagari_latin_and_arabic():
     assert arabic["arabic_character_ratio"] > 0.9
 
 
+def test_single_urdu_suffix_invalidates_otherwise_devanagari_hindi():
+    metadata = script_metadata(
+        "महिलाوں की भागीदारी 63 प्रतिशत रही है।", "original", "hi")
+    assert metadata["detected_script"] == "mixed-devanagari-arabic"
+    assert metadata["arabic_character_ratio"] > 0
+    assert metadata["script_valid"] is False
+
+
 def test_hindi_script_metrics_preserve_technical_terms_and_numbers():
     text = "आज SQLAlchemy dependency update करनी है और meeting 10:30 बजे है।"
     metadata = script_metadata(text, "devanagari", "hi")

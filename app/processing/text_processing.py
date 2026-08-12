@@ -29,7 +29,9 @@ def script_metadata(text: str, requested_script: str = "original",
     counts = {name: len(pattern.findall(text)) for name, pattern in SCRIPT_RANGES.items()}
     total = sum(counts.values())
     ratios = {name: count / total if total else 0.0 for name, count in counts.items()}
-    if counts["arabic"] and ratios["arabic"] >= 0.20:
+    if counts["arabic"] and counts["devanagari"]:
+        detected = "mixed-devanagari-arabic"
+    elif counts["arabic"]:
         detected = "arabic"
     elif counts["devanagari"] and counts["latin"]:
         detected = "mixed-devanagari-latin"
@@ -39,9 +41,11 @@ def script_metadata(text: str, requested_script: str = "original",
     requested = requested_script.lower().replace(" / roman", "")
     valid = True
     if hindi and counts["arabic"]:
-        # Arabic/Urdu output is evidence, not input to a lossy character map.
-        # Keep it in metadata but never promote it as Hindi/Hinglish display text.
-        valid = ratios["arabic"] < 0.20 and counts["arabic"] < counts["devanagari"]
+        # Even one Urdu suffix inside otherwise-Devanagari Hindi (for example,
+        # ``महिलाوں``) makes the displayed word corrupt. Arabic and Devanagari
+        # are not character-for-character equivalents, so retain the evidence
+        # and ask ASR for a clean recovery instead of guessing a replacement.
+        valid = False
     if hindi and requested == "devanagari" and counts["latin"] and not counts["devanagari"]:
         valid = False
     if hindi and requested == "latin" and counts["devanagari"]:

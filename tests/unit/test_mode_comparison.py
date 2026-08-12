@@ -383,3 +383,25 @@ def test_hindi_final_retries_wrong_script_and_uses_valid_devanagari_recovery():
     assert language == "Hindi"
     assert metadata["detected_script"] == "devanagari"
     assert metadata["script_valid"] is True
+
+
+def test_hindi_final_retries_a_single_embedded_urdu_suffix():
+    mixed = SimpleNamespace(
+        start=0.0, end=2.0, no_speech_prob=0.0, avg_logprob=0.0,
+        compression_ratio=1.0, text=" महिलाوں की भागीदारी 63 प्रतिशत रही है। ")
+    recovered = SimpleNamespace(
+        start=0.0, end=2.0, no_speech_prob=0.0, avg_logprob=0.0,
+        compression_ratio=1.0, text=" महिलाओं की भागीदारी 63 प्रतिशत रही है। ")
+    info = SimpleNamespace(language="hi", language_probability=0.99)
+    calls = iter([([mixed], info), ([recovered], info)])
+    engine = WhisperEngine(
+        AppConfig(language_mode="hi", script_mode="original"),
+        SimpleNamespace(transcribe=lambda *_args, **_kwargs: next(calls)))
+
+    text, _language, metadata = engine.transcribe(
+        ASRJob(np.ones(32000, dtype=np.float32), True, 45, 0.0), "")
+
+    assert text == "महिलाओं की भागीदारी 63 प्रतिशत रही है।"
+    assert metadata["detected_script"] == "devanagari"
+    assert metadata["arabic_character_ratio"] == 0
+    assert metadata["script_valid"] is True
