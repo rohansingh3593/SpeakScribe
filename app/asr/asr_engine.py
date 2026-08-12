@@ -55,10 +55,9 @@ class WhisperEngine:
         last_error = None
         for device, compute in candidates:
             try:
-                # Fast owns the lightweight base model; Balanced and Accurate
-                # share small. Match those actual call counts instead of
-                # oversubscribing CPU with three workers per model.
-                model_workers = 1 if self.config.model_size == "base" else 2
+                # Live ASR runs one inference at a time. A single CTranslate2
+                # worker avoids internal oversubscription on the CPU fallback.
+                model_workers = 1
                 model = WhisperModel(self.config.model_size, device=device,
                                      compute_type=compute, num_workers=model_workers)
                 LOGGER.debug(f"Model loaded: device={device} compute={compute} "
@@ -190,6 +189,30 @@ class WhisperEngine:
         text = clean_text(after_transliteration, final=job.final)
         language_probability = float(getattr(info, "language_probability", 0.0) or 0.0)
         metadata = script_metadata(text, self.config.script_mode, self.config.language_mode)
+        # A non-empty decode can still be unusable for Hindi (Arabic script or
+        # an English hallucination). Give finalized audio one prompt-free,
+        # relaxed recovery pass before declaring that no safe speech was found.
+        if (job.final and self.config.language_mode == "hi" and text and
+                not metadata["script_valid"]):
+            first_raw = raw_text
+            LOGGER.info("Retrying Hindi final after script/language mismatch | utterance=%s",
+                        job.utterance_id)
+            retry_text, retry_info, retry_raw = decode(None, None, relaxed=True)
+            retry_after_script = apply_script_mode(
+                retry_text, self.config.script_mode, self.config.vocabulary)
+            retry_text = clean_text(retry_after_script, final=True)
+            retry_metadata = script_metadata(
+                retry_text, self.config.script_mode, self.config.language_mode)
+            if retry_text and retry_metadata["script_valid"]:
+                text, info, raw_text, metadata = (
+                    retry_text, retry_info, retry_raw, retry_metadata)
+                after_language = retry_text
+                after_transliteration = retry_after_script
+                LOGGER.info("Hindi recovery produced a valid transcript | utterance=%s",
+                            job.utterance_id)
+            else:
+                metadata["initial_raw_text"] = first_raw
+                metadata["retry_raw_text"] = retry_raw
         metadata.update({
             "raw_text": raw_text, "processed_text": text,
             "detected_language": getattr(info, "language", None) or self.config.language_mode,

@@ -671,11 +671,7 @@ class MainWindow(QWidget):
         if not display_text:
             statuses = {item["status"] for item in state["modes"].values()}
             terminal = {"FINAL", "ERROR", "SCRIPT MISMATCH", "DEFERRED"}
-            if statuses <= terminal and "SCRIPT MISMATCH" in statuses:
-                body = ("<i>Hindi speech was recognized, but every result used an "
-                        "unexpected script. Nothing unsafe was displayed.</i><br>"
-                        f"<small>{timing_text}</small>")
-            elif statuses <= terminal:
+            if statuses <= terminal:
                 body = "<i>No speech was recognized in this segment.</i>"
             else:
                 body = f"<i>Processing speech…</i><br><small>{timing_text}</small>"

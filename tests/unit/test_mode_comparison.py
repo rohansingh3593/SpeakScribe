@@ -32,8 +32,8 @@ def test_profiles_are_distinct_and_balanced_is_default():
     assert fast.partial_interval < balanced.partial_interval < accurate.partial_interval
     assert fast.context_sentences < balanced.context_sentences < accurate.context_sentences
     assert fast.profile.beam_size < balanced.profile.beam_size < accurate.profile.beam_size
-    assert fast.profile.model_size == "base"
-    assert balanced.profile.model_size == accurate.profile.model_size == "small"
+    assert fast.profile.model_size == balanced.profile.model_size == accurate.profile.model_size == (
+        "small")
 
 
 def test_report_uses_measured_winners_and_side_by_side_transcripts():
@@ -312,3 +312,24 @@ def test_whisper_raw_arabic_evidence_is_preserved_and_flagged_before_display():
     assert metadata["detected_language"] == "hi"
     assert metadata["detected_script"] == "arabic"
     assert metadata["script_valid"] is False
+
+
+def test_hindi_final_retries_wrong_script_and_uses_valid_devanagari_recovery():
+    arabic = SimpleNamespace(
+        start=0.0, end=1.0, no_speech_prob=0.0, avg_logprob=0.0,
+        compression_ratio=1.0, text=" آپ کو کیا کرنا ہے؟ ")
+    hindi = SimpleNamespace(
+        start=0.0, end=1.0, no_speech_prob=0.0, avg_logprob=0.0,
+        compression_ratio=1.0, text=" आपको क्या करना है? ")
+    info = SimpleNamespace(language="hi", language_probability=0.98)
+    calls = iter([([arabic], info), ([hindi], info)])
+    model = SimpleNamespace(transcribe=lambda *_args, **_kwargs: next(calls))
+    engine = WhisperEngine(AppConfig(language_mode="hi", script_mode="original"), model)
+
+    text, language, metadata = engine.transcribe(
+        ASRJob(np.ones(32000, dtype=np.float32), True, 44, 0.0), "")
+
+    assert text == "आपको क्या करना है?"
+    assert language == "Hindi"
+    assert metadata["detected_script"] == "devanagari"
+    assert metadata["script_valid"] is True
