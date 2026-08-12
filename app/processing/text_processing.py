@@ -46,6 +46,13 @@ def script_metadata(text: str, requested_script: str = "original",
         valid = False
     if hindi and requested == "latin" and counts["devanagari"]:
         valid = False
+    if hindi and requested == "original" and detected == "latin":
+        # Hindi-pinned Whisper sometimes hallucinates fluent English from noisy
+        # loopback audio. Original may preserve genuine Roman Hinglish, but a
+        # Latin-only candidate still needs recognizable Hindi function words.
+        words = re.findall(r"[A-Za-z']+", text.casefold())
+        hinglish_words = sum(word in HINGLISH_WORDS for word in words)
+        valid = hinglish_words >= 2
     expected = requested if requested in {"devanagari", "latin"} else (
         "devanagari-or-latin" if hindi else "original")
     return {

@@ -332,10 +332,15 @@ class ComparisonASRWorker:
         self.first_seen: dict[tuple[int, PerformanceMode], float] = {}
 
     def run(self) -> None:
-        queues = {mode: Queue(maxsize=8) for mode in PerformanceMode}
-        workers = [Thread(target=self._run_mode, args=(mode, queues[mode]),
-                          name=f"asr-{mode.value}", daemon=True)
-                   for mode in PerformanceMode]
+        # Do not even construct/load idle refinement engines in a live session.
+        # This makes the runtime architecture unambiguous in logs and avoids a
+        # second CTranslate2 model reserving CPU threads and memory.
+        queues = {PerformanceMode.FAST: Queue(maxsize=2)}
+        workers = [Thread(target=self._run_mode,
+                          args=(PerformanceMode.FAST, queues[PerformanceMode.FAST]),
+                          name="asr-fast", daemon=True)]
+        LOGGER.info("Live ASR scheduler active | pipeline=fast-live-v2 modes=fast "
+                    "partial_queue=latest final_queue=latest")
         for worker in workers:
             worker.start()
         stop_empty_since = None
@@ -358,10 +363,7 @@ class ComparisonASRWorker:
             # was taking 30-100 seconds in production and making capture drift
             # minutes behind. Keep the recording path exclusively FAST; offline
             # evaluation remains available for side-by-side profile comparison.
-            target_modes = (PerformanceMode.FAST,)
-            for mode in target_modes:
-                mode_queue = queues[mode]
-                self._enqueue_mode_job(mode, mode_queue, job)
+            self._enqueue_mode_job(PerformanceMode.FAST, queues[PerformanceMode.FAST], job)
         for mode_queue in queues.values():
             mode_queue.put(None)
         for worker in workers:
@@ -431,7 +433,11 @@ class ComparisonASRWorker:
                 duration = len(job.audio) / config.sample_rate
                 late = result_latency >= config.max_result_latency_seconds
                 script_valid = script.get("script_valid", True)
-                if text and job.final and script_valid:
+                duplicate = bool(
+                    text and job.final and script_valid and self.histories[mode] and
+                    clean_text(self.histories[mode][-1]).casefold() ==
+                    clean_text(text).casefold())
+                if text and job.final and script_valid and not duplicate:
                     self.histories[mode].append(text)
                 metrics = {
                     "segment_id": job.utterance_id,
@@ -447,13 +453,14 @@ class ComparisonASRWorker:
                     "memory_mb": process.memory_info().rss / 1024 ** 2,
                     "language": language, "start_time": job.audio_start_time,
                     "end_time": job.audio_end_time,
+                    "duplicate": duplicate,
                     **script,
                 }
                 # The latency target is diagnostic, not a destructive timeout.
                 # Slow CPU inference cannot be cancelled safely, so throwing its
                 # eventual transcript away leaves a permanent blank row after
                 # the user has already waited for it.
-                display_text = text if script_valid else ""
+                display_text = text if script_valid and not duplicate else ""
                 if display_text or job.final:
                     self.signals.mode_text.emit(
                         job.utterance_id, mode.value, display_text, job.final, metrics)
@@ -470,6 +477,7 @@ class ComparisonASRWorker:
                 self.signals.mode_status.emit(
                     job.utterance_id, mode.value,
                     "Script mismatch" if not script_valid else
+                    "Duplicate" if duplicate else
                     "Final" if job.final else "Partial" if text else "Listening")
             except Exception as exc:
                 log_exception(f"ASR-{mode.value.upper()}", exc)

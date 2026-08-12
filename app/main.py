@@ -111,7 +111,7 @@ class SpeechController:
         for thread in self.threads:
             thread.start()
         log_print(
-            f"Listening started; log={get_output_path()} threads="
+            f"Listening started; pipeline=fast-live-v2 log={get_output_path()} threads="
             f"{[thread.name for thread in self.threads]} "
             f"capture_rate={config.capture_sample_rate} asr_rate={config.sample_rate} "
             f"frame_ms={config.frame_ms} speech_threshold={config.speech_threshold} "
@@ -581,6 +581,11 @@ class MainWindow(QWidget):
     def show_mode_text(self, segment_id: int, mode_name: str, text: str,
                        final: bool, metrics: dict) -> None:
         state = self._ensure_segment(segment_id, metrics)
+        if metrics.get("duplicate"):
+            self._remove_segment(segment_id)
+            LOGGER.info("Suppressed duplicate live segment | segment=%s mode=%s",
+                        segment_id, mode_name)
+            return
         mode_state = state["modes"][mode_name]
         mode_state["metadata"] = metrics
         script_valid = metrics.get("script_valid", True)
@@ -611,6 +616,17 @@ class MainWindow(QWidget):
             segment_id, mode_name, metrics.get("raw_text"), metrics.get("processed_text"),
             state.get("display_text"), metrics.get("detected_language"),
             metrics.get("detected_script"), metrics.get("requested_script"), script_valid)
+
+    def _remove_segment(self, segment_id: int) -> None:
+        """Remove a rejected live row and keep the stable row index map valid."""
+        row = self.segment_rows.pop(segment_id, None)
+        self.segment_states.pop(segment_id, None)
+        if row is None:
+            return
+        self.segment_table.removeRow(row)
+        for existing_id, existing_row in tuple(self.segment_rows.items()):
+            if existing_row > row:
+                self.segment_rows[existing_id] = existing_row - 1
 
     def _render_segment(self, segment_id: int, refresh_successor: bool = True) -> None:
         state = self.segment_states[segment_id]
@@ -736,13 +752,17 @@ class MainWindow(QWidget):
             self.mode_outputs[mode].setHtml("".join(parts))
 
     def show_mode_status(self, segment_id: int, mode_name: str, status: str) -> None:
+        if status.upper() == "DUPLICATE":
+            self._remove_segment(segment_id)
+            return
         state = self._ensure_segment(segment_id)
         mode_state = state["modes"][mode_name]
         mode_state["status"] = status.upper()
         if status.upper() == "PROCESSING" and mode_state["processing_started"] is None:
             mode_state["processing_started"] = time.monotonic()
         elif status.upper() in {
-                "FINAL", "ERROR", "EXPIRED", "LISTENING", "PARTIAL", "SCRIPT MISMATCH"}:
+                "FINAL", "ERROR", "EXPIRED", "LISTENING", "PARTIAL", "SCRIPT MISMATCH",
+                "DUPLICATE"}:
             mode_state["processing_started"] = None
         if status.upper() == "LISTENING":
             mode_state["partial"] = ""

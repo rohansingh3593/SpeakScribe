@@ -271,6 +271,29 @@ def test_invalid_final_is_not_added_to_future_asr_context():
         "Processing", "Script mismatch"}
 
 
+def test_consecutive_identical_fast_finals_are_marked_duplicate():
+    class Provider:
+        def get(self, _config):
+            return SimpleNamespace(transcribe=lambda _job, _context: (
+                "यह एक सही हिंदी वाक्य है।", "Hindi", {"script_valid": True}))
+
+    signals = SimpleNamespace(mode_text=SignalRecorder(), mode_status=SignalRecorder(),
+                              mode_error=SignalRecorder())
+    queue = Queue()
+    audio = np.ones(1600, dtype=np.float32)
+    queue.put(ASRJob(audio, True, 80, 0.0))
+    queue.put(ASRJob(audio, True, 81, 0.0))
+    stop = Event(); stop.set()
+
+    ComparisonASRWorker(AppConfig(language_mode="hi"), queue, stop, signals, Provider()).run()
+
+    emitted = {item[0]: item for item in signals.mode_text.values}
+    assert emitted[80][2] == "यह एक सही हिंदी वाक्य है।"
+    assert emitted[81][2] == ""
+    assert emitted[81][4]["duplicate"] is True
+    assert any(item == (81, "fast", "Duplicate") for item in signals.mode_status.values)
+
+
 def test_whisper_raw_arabic_evidence_is_preserved_and_flagged_before_display():
     segment = SimpleNamespace(
         start=0.0, end=1.0, no_speech_prob=0.0, avg_logprob=0.0,

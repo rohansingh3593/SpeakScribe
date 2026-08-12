@@ -38,6 +38,16 @@ def test_english_script_validation_is_not_changed_by_hindi_policy():
     assert metadata["script_valid"] is True
 
 
+def test_hindi_original_rejects_english_hallucination_but_keeps_roman_hinglish():
+    hallucination = script_metadata(
+        "The state of the Indian people is very important.", "original", "hi")
+    hinglish = script_metadata(
+        "Aaj main Jenkins pipeline check karunga", "original", "hi")
+    assert hallucination["detected_script"] == "latin"
+    assert hallucination["script_valid"] is False
+    assert hinglish["script_valid"] is True
+
+
 def test_hinglish_detection():
     text = "Today main SQLAlchemy upgrade pe work kar raha hoon"
     assert detect_language(text, "hi") == "Hinglish"
