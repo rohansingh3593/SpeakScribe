@@ -22,6 +22,75 @@ sample audio belongs under `data/`, while generated pytest sessions remain in ig
 
 A fast, real-time Speech Recognition desktop application built with **Python, PyQt6, SoundCard, and Faster-Whisper**.
 
+## Performance modes and measured comparison
+
+SpeakScribe exposes exactly three profiles. **Balanced** is the default; **Fast** uses
+shorter rolling windows, earlier/more frequent partials, greedy decoding, and less
+context, while **Accurate** uses a wider context window and stronger final decoding.
+All profiles share the same multilingual model weights, so changing mode does not reload
+Whisper. The active settings are recorded in the ASR log.
+
+Run a fair comparison (the runner sends every manifest audio file through all three
+modes) with:
+
+```bash
+python -m evaluation.mode_comparison --manifest tests/expected/transcripts.json
+```
+
+The command writes measured `comparison.json`, `comparison.csv`, and `comparison.md`
+files beneath `evaluation/mode_comparison/session_TIMESTAMP/`. Reports include raw
+transcripts, English/Hindi/Hinglish accuracy, technical-term accuracy, streaming and
+resource metrics, per-metric winners, and a weighted recommendation. Live rows never
+display example or fabricated numbers.
+
+The application has no performance selector. One capture and the existing pause-based
+VAD create immutable, timestamped segments. Each segment ID and exact audio array is sent
+to bounded Fast, Balanced, and Accurate queues. Raw results stay separate internally,
+while the main screen shows one clean scrolling Live Transcript.
+
+Partial updates retain their segment ID and replace that segment rather than appending
+new lines. Fast becomes visible immediately; a valid Balanced result refines the exact
+same segment in place, then a valid Accurate result refines it again. Empty, corrupt, or
+failed later results never erase useful earlier text. A subtle source badge identifies
+which profile currently supplies each displayed segment.
+
+Each live segment also shows processing time. While work is active the Fast, Balanced,
+and Accurate elapsed timers refresh once per second; completed stages show their measured
+end-to-end result latency (queue delay plus inference), so the UI never presents a guessed
+ETA as if it were measured. Every duration is printed in both seconds and milliseconds,
+for example `0.42s (421ms)`.
+
+Live refinement has a hard 20-second freshness deadline. A queued job already older than
+that limit is skipped, and a result that completes after the limit is logged but never
+allowed to replace visible text. Fast uses the multilingual `base` model and comparison
+segments are capped at four seconds to improve CPU responsiveness; Balanced/Accurate keep
+the stronger `small` model. The preload thread warms both weight sets before capture.
+
+All finalized segments remain visible and scroll vertically without three duplicated
+mode columns. Copy produces the promoted combined script in audio order. Conservative
+boundary cleanup removes only a multi-word overlap between adjacent timestamps; raw Fast,
+Balanced, and Accurate strings remain untouched for evaluation/debugging.
+
+The segment table is reverse chronological: the active/newest segment stays at the top
+and older audio moves downward. Late Fast/Balanced/Accurate results use the segment-ID
+lookup and update in place without changing row order. New speech follows automatically
+when the view is already near the top; manual scrolling into older history is preserved.
+
+The live panel also shows a **Relative accuracy** percentage calculated from cross-mode
+word agreement. This is explicitly marked `(agreement)` because microphone speech has no
+known reference transcript and therefore cannot have a truthful WER or ground-truth
+accuracy percentage. Offline evaluation reports continue to show actual reference-based
+accuracy and WER. Highlighting and agreement calculations never modify the ASR text.
+
+The previous three-row layout remains available only as a named example template:
+
+```bash
+python -m examples.performance_comparison_template
+# Direct source-checkout invocation is also supported:
+python examples/performance_comparison_template.py
+```
+
+
 ## Reusable library
 
 The UI-independent implementation is installable from `src/speakscribe` with

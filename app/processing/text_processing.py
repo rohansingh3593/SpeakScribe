@@ -1,5 +1,7 @@
 """Conservative language, cleanup, and optional script processing."""
 
+from difflib import SequenceMatcher
+from html import escape
 from importlib import import_module
 import re
 
@@ -22,12 +24,80 @@ def format_recording_time(seconds: float) -> str:
     return f"{minutes:02d}:{remaining_seconds:02d}"
 
 
+def format_processing_duration(seconds: float) -> str:
+    """Show one measured duration in both seconds and milliseconds."""
+    value = max(0.0, seconds)
+    return f"{value:.2f}s ({value * 1000:.0f}ms)"
+
+
 def compose_live_transcript(final_text: list[str], partial_text: str = "") -> str:
     """Render stable text plus one replaceable partial without duplicating it."""
     parts = [text.strip() for text in final_text if text.strip()]
     if partial_text.strip():
         parts.append(partial_text.strip())
     return "\n".join(parts)
+
+
+def comparison_diff_html(transcripts: dict[str, str]) -> dict[str, str]:
+    """Highlight words which are not aligned identically in every transcript."""
+    tokenized = {mode: re.findall(r"\S+", text) for mode, text in transcripts.items()}
+
+    def comparable(word: str) -> str:
+        return re.sub(r"[^\w\u0900-\u097f]+", "", word, flags=re.UNICODE).casefold()
+
+    keys = {mode: [comparable(word) for word in words]
+            for mode, words in tokenized.items()}
+    output = {}
+    for mode, words in tokenized.items():
+        matching = set(range(len(words)))
+        for other_mode, other_keys in keys.items():
+            if other_mode == mode:
+                continue
+            aligned = set()
+            matcher = SequenceMatcher(None, keys[mode], other_keys, autojunk=False)
+            for block in matcher.get_matching_blocks():
+                aligned.update(range(block.a, block.a + block.size))
+            matching.intersection_update(aligned)
+        rendered = []
+        for index, word in enumerate(words):
+            safe = escape(word)
+            rendered.append(safe if index in matching else
+                            f'<span style="background-color:#8b2635;color:#fff;'
+                            f'font-weight:600;padding:1px 2px">{safe}</span>')
+        output[mode] = " ".join(rendered)
+    return output
+
+
+def comparison_agreement_percentages(transcripts: dict[str, str]) -> dict[str, float]:
+    """Return reference-free word agreement; this is not ground-truth accuracy."""
+    normalized = {
+        mode: [re.sub(r"[^\w\u0900-\u097f]+", "", word, flags=re.UNICODE).casefold()
+               for word in text.split()]
+        for mode, text in transcripts.items()
+    }
+    scores = {}
+    for mode, words in normalized.items():
+        peers = [peer for other, peer in normalized.items() if other != mode]
+        ratios = [SequenceMatcher(None, words, peer, autojunk=False).ratio()
+                  for peer in peers]
+        scores[mode] = round(100 * sum(ratios) / len(ratios), 1) if ratios else 100.0
+    return scores
+
+
+def descending_segment_row(existing_ids, segment_id: int) -> int:
+    """Return the stable insertion row for newest-first segment ordering."""
+    return sum(1 for existing_id in existing_ids if existing_id > segment_id)
+
+
+def best_refinement_candidate(raw_results: dict[str, str | None],
+                              partial_results: dict[str, str | None]) -> tuple[str | None, str]:
+    """Choose Accurate > Balanced > Fast without promoting empty/corrupt text."""
+    for candidates in (raw_results, partial_results):
+        for mode in ("accurate", "balanced", "fast"):
+            text = candidates.get(mode) or ""
+            if text and not is_low_quality_text(text):
+                return mode, text
+    return None, ""
 
 
 def incremental_transcript_delta(existing: str, candidate: str) -> str:
@@ -115,10 +185,14 @@ def is_low_quality_text(text: str) -> bool:
     return False
 
 
-def remove_history_overlap(history: str, text: str, limit: int = 12) -> str:
+def remove_history_overlap(history: str, text: str, limit: int = 12,
+                           min_overlap: int = 1) -> str:
     old, new = history.split(), text.split()
-    for count in range(min(limit, len(old), len(new)), 0, -1):
-        if [w.casefold() for w in old[-count:]] == [w.casefold() for w in new[:count]]:
+    def comparable(word: str) -> str:
+        return re.sub(r"[^\w\u0900-\u097f]+", "", word).casefold()
+    for count in range(min(limit, len(old), len(new)), min_overlap - 1, -1):
+        if ([comparable(w) for w in old[-count:]] ==
+                [comparable(w) for w in new[:count]]):
             return " ".join(new[count:])
     return text
 

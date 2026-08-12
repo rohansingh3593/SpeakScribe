@@ -25,6 +25,8 @@ class ASRJob:
     utterance_id: int
     captured_at: float
     speech_seconds: float | None = None
+    audio_start_time: float = 0.0
+    audio_end_time: float = 0.0
 
 
 def select_capture_device(soundcard, source: str):
@@ -170,6 +172,8 @@ class AudioCaptureWorker:
                 LOGGER.info("Audio stream warm-up complete | source=%s", source_description)
                 next_diagnostic = time.monotonic()
                 next_warning_log = 0.0
+                next_queue_warning = 0.0
+                dropped_audio_frames = 0
                 first_block = True
                 while not self.stop_event.is_set():
                     with warnings.catch_warnings(record=True) as captured_warnings:
@@ -227,7 +231,13 @@ class AudioCaptureWorker:
                             except Empty:
                                 pass
                             self.output.put_nowait(frame)
-                            LOGGER.warning("Audio queue full; dropped oldest raw frame")
+                            dropped_audio_frames += 1
+                            if now >= next_queue_warning:
+                                LOGGER.warning(
+                                    "Audio queue full; dropped %s oldest raw frame(s) since "
+                                    "the previous warning", dropped_audio_frames)
+                                dropped_audio_frames = 0
+                                next_queue_warning = now + 5.0
         except Exception as exc:
             log_exception("CAPTURE", exc)
             self.on_error(str(exc))
@@ -257,6 +267,12 @@ class SpeechBufferWorker:
             except Empty:
                 pending = None
             if pending is not None and pending.final:
+                if self.config.asr_keep_latest_final:
+                    LOGGER.warning(
+                        "ASR is behind; replaced stale final utterance=%s with newest "
+                        "utterance=%s", pending.utterance_id, job.utterance_id)
+                    self.asr_queue.put_nowait(job)
+                    return
                 self.asr_queue.put_nowait(pending)
             elif pending is not None:
                 LOGGER.debug(f"[QUEUE] evicted obsolete partial utterance={pending.utterance_id}")
@@ -296,12 +312,15 @@ class SpeechBufferWorker:
         last_partial = 0.0
         diagnostic_rms: list[float] = []
         next_diagnostic = time.monotonic() + self.config.debug_log_interval
+        stream_seconds = 0.0
+        utterance_start = 0.0
         while not self.stop_event.is_set() or not self.audio_queue.empty():
             try:
                 frame = self.audio_queue.get(timeout=0.1)
             except Empty:
                 continue
             active, rms = self.detector.classify(frame)
+            stream_seconds += frame_seconds
             now = time.monotonic()
             diagnostic_rms.append(rms)
             if now >= next_diagnostic:
@@ -326,6 +345,7 @@ class SpeechBufferWorker:
                 pre.append(frame)
                 if active:
                     self.utterance_id += 1
+                    utterance_start = max(0.0, stream_seconds - len(pre) * frame_seconds)
                     speech.extend(pre)
                     voiced_duration = self.config.speech_start_frames * frame_seconds
                     pre.clear()
@@ -346,8 +366,11 @@ class SpeechBufferWorker:
                     now - last_partial >= self.config.partial_interval):
                 window_frames = round(self.config.rolling_window_seconds / frame_seconds)
                 audio = np.concatenate(speech[-window_frames:])
+                partial_end = utterance_start + duration
+                partial_start = max(
+                    utterance_start, partial_end - len(audio) / self.config.sample_rate)
                 self._submit(ASRJob(audio, False, self.utterance_id, now,
-                                    voiced_duration))
+                                    voiced_duration, partial_start, partial_end))
                 last_partial = now
             ended = silence >= self.config.silence_duration
             if ended or duration >= self.config.max_utterance_seconds:
@@ -358,7 +381,8 @@ class SpeechBufferWorker:
                     if trim:
                         audio = audio[:-trim]
                     self._submit(ASRJob(audio, True, self.utterance_id, now,
-                                        voiced_duration))
+                                        voiced_duration, utterance_start,
+                                        utterance_start + len(audio) / self.config.sample_rate))
                     LOGGER.info(
                         "Voice captured | utterance=%s voiced=%.2fs audio=%.2fs; queued for ASR",
                         self.utterance_id, usable, len(audio) / self.config.sample_rate,
@@ -377,4 +401,5 @@ class SpeechBufferWorker:
         duration = len(speech) * frame_seconds
         if voiced_duration >= self.config.min_speech_duration:
             self._submit(ASRJob(np.concatenate(speech), True, self.utterance_id,
-                                time.monotonic(), voiced_duration))
+                                time.monotonic(), voiced_duration, utterance_start,
+                                utterance_start + duration))

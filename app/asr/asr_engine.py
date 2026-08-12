@@ -1,8 +1,8 @@
 """Single-model Faster-Whisper inference worker."""
 
 from collections import deque
-from queue import Empty, Queue
-from threading import Event, Lock
+from queue import Empty, Full, Queue
+from threading import Event, Lock, Thread
 from pathlib import Path
 import time
 import wave
@@ -16,6 +16,7 @@ from app.audio.audio_pipeline import (
     ASRJob, audio_normalization_gain, audio_statistics, prepare_audio_for_asr,
 )
 from app.config.settings import AppConfig
+from app.config.settings import PerformanceMode
 from app.config.decoding_policy import hotwords, initial_prompt, retry_thresholds
 from app.utils.logger import get_logger, log_exception
 from app.processing.text_processing import (
@@ -42,9 +43,9 @@ def _write_debug_wav(path: Path, audio: np.ndarray, sample_rate: int) -> None:
 
 
 class WhisperEngine:
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, model=None):
         self.config = config
-        self.model = self._load_model()
+        self.model = model if model is not None else self._load_model()
 
     def _load_model(self):
         started = time.monotonic()
@@ -54,8 +55,12 @@ class WhisperEngine:
         last_error = None
         for device, compute in candidates:
             try:
+                # Fast owns the lightweight base model; Balanced and Accurate
+                # share small. Match those actual call counts instead of
+                # oversubscribing CPU with three workers per model.
+                model_workers = 1 if self.config.model_size == "base" else 2
                 model = WhisperModel(self.config.model_size, device=device,
-                                     compute_type=compute)
+                                     compute_type=compute, num_workers=model_workers)
                 LOGGER.debug(f"Model loaded: device={device} compute={compute} "
                           f"seconds={time.monotonic() - started:.2f}")
                 return model
@@ -125,7 +130,8 @@ class WhisperEngine:
                 beam_size=beam_size, best_of=best_of,
                 temperature=profile.temperature, initial_prompt=initial_prompt,
                 hotwords=word_bias,
-                condition_on_previous_text=False, vad_filter=self.config.vad_filter,
+                condition_on_previous_text=(profile.condition_on_previous_text and job.final),
+                vad_filter=self.config.vad_filter,
                 word_timestamps=False, no_speech_threshold=no_speech_threshold,
                 log_prob_threshold=log_probability_threshold,
                 compression_ratio_threshold=compression_threshold,
@@ -186,21 +192,33 @@ class WhisperEngine:
 
 
 class WhisperModelProvider:
-    """Thread-safe owner that loads exactly one Whisper engine per application."""
+    """Thread-safe lazy cache keyed by the settings which select model weights."""
 
     def __init__(self):
-        self._engine: WhisperEngine | None = None
+        self._engines: dict[tuple, WhisperEngine] = {}
+        self._models: dict[tuple[str, str, str], object] = {}
         self._lock = Lock()
 
     def get(self, config: AppConfig) -> WhisperEngine:
         with self._lock:
-            if self._engine is None:
-                self._engine = WhisperEngine(config)
+            model_key = (config.model_size, config.device, config.compute_type)
+            engine_key = (*model_key, config.performance_mode, config.language_mode,
+                          config.script_mode)
+            engine = self._engines.get(engine_key)
+            if engine is None:
+                model = self._models.get(model_key)
+                engine = WhisperEngine(config, model=model)
+                self._models.setdefault(model_key, engine.model)
+                self._engines[engine_key] = engine
             else:
-                # Model weights/device stay cached; lightweight decode and text
-                # settings may change between listening sessions.
-                self._engine.config = config
-            return self._engine
+                # Mode/language changes never reload identical model weights.
+                engine.config = config
+            LOGGER.info("Performance profile active | mode=%s model=%s beam=%s "
+                        "partial_interval=%.2fs context=%s window=%.1fs",
+                        config.performance_mode.value, config.model_size,
+                        config.profile.beam_size, config.partial_interval,
+                        config.context_sentences, config.rolling_window_seconds)
+            return engine
 
 
 class ASRWorker:
@@ -266,3 +284,122 @@ class ASRWorker:
         except Exception as exc:
             log_exception("ASR-WORKER", exc)
             self.signals.error.emit(str(exc))
+
+
+class ComparisonASRWorker:
+    """Decode each immutable ASR snapshot under all profiles off the GUI thread."""
+
+    def __init__(self, config: AppConfig, queue: Queue, stop_event: Event, signals,
+                 model_provider: WhisperModelProvider):
+        self.config, self.queue, self.stop_event = config, queue, stop_event
+        self.signals, self.model_provider = signals, model_provider
+        self.histories = {mode: deque(maxlen=AppConfig(
+            performance_mode=mode).context_sentences) for mode in PerformanceMode}
+        self.first_seen: dict[tuple[int, PerformanceMode], float] = {}
+
+    def run(self) -> None:
+        queues = {mode: Queue(maxsize=8) for mode in PerformanceMode}
+        workers = [Thread(target=self._run_mode, args=(mode, queues[mode]),
+                          name=f"asr-{mode.value}", daemon=True)
+                   for mode in PerformanceMode]
+        for worker in workers:
+            worker.start()
+        stop_empty_since = None
+        while True:
+            try:
+                job = self.queue.get(timeout=0.1)
+            except Empty:
+                if not self.stop_event.is_set():
+                    continue
+                stop_empty_since = stop_empty_since or time.monotonic()
+                if time.monotonic() - stop_empty_since >= 0.75:
+                    break
+                continue
+            stop_empty_since = None
+            for mode, mode_queue in queues.items():
+                self._enqueue_mode_job(mode, mode_queue, job)
+        for mode_queue in queues.values():
+            mode_queue.put(None)
+        for worker in workers:
+            worker.join()
+
+    @staticmethod
+    def _enqueue_mode_job(mode: PerformanceMode, queue: Queue, job: ASRJob) -> None:
+        if job.final:
+            retained_finals = []
+            while True:
+                try:
+                    pending = queue.get_nowait()
+                except Empty:
+                    break
+                if pending.final:
+                    retained_finals.append(pending)
+            for pending in retained_finals:
+                queue.put(pending)
+            queue.put(job)
+            return
+        try:
+            queue.put_nowait(job)
+        except Full:
+            LOGGER.debug("Dropped stale partial | mode=%s segment=%s",
+                         mode.value, job.utterance_id)
+
+    def _run_mode(self, mode: PerformanceMode, queue: Queue) -> None:
+        config = AppConfig(**{**self.config.__dict__, "performance_mode": mode})
+        config.model_size = config.profile.model_size
+        engine = self.model_provider.get(config)
+        process = Process()
+        while True:
+            job = queue.get()
+            if job is None:
+                return
+            queued_for = (time.monotonic() - job.captured_at
+                          if job.captured_at > 0 else 0.0)
+            if queued_for >= config.max_result_latency_seconds:
+                LOGGER.warning("Expired ASR job before decode | segment=%s mode=%s age=%.2fs",
+                               job.utterance_id, mode.value, queued_for)
+                self.signals.mode_status.emit(job.utterance_id, mode.value, "Expired")
+                continue
+            self.signals.mode_status.emit(job.utterance_id, mode.value, "Processing")
+            started = time.monotonic()
+            try:
+                text, language = engine.transcribe(job, " ".join(self.histories[mode]))
+                elapsed = time.monotonic() - started
+                result_latency = (time.monotonic() - job.captured_at
+                                  if job.captured_at > 0 else elapsed)
+                duration = len(job.audio) / config.sample_rate
+                expired = result_latency >= config.max_result_latency_seconds
+                if text and job.final and not expired:
+                    self.histories[mode].append(text)
+                metrics = {
+                    "asr_time": elapsed,
+                    "queue_delay": (max(0.0, started - job.captured_at)
+                                    if job.captured_at > 0 else 0.0),
+                    "result_latency": result_latency,
+                    "final_latency": result_latency if job.final else None,
+                    "first_partial_latency": result_latency if not job.final and text else None,
+                    "real_time_factor": elapsed / max(duration, .001),
+                    "cpu_percent": process.cpu_percent(None),
+                    "memory_mb": process.memory_info().rss / 1024 ** 2,
+                    "language": language, "start_time": job.audio_start_time,
+                    "end_time": job.audio_end_time,
+                }
+                if not expired and (text or job.final):
+                    self.signals.mode_text.emit(
+                        job.utterance_id, mode.value, text, job.final, metrics)
+                if expired:
+                    LOGGER.warning(
+                        "Discarded late ASR result | segment=%s mode=%s latency=%.2fs limit=%.2fs",
+                        job.utterance_id, mode.value, result_latency,
+                        config.max_result_latency_seconds)
+                if job.final:
+                    LOGGER.info(
+                        "Comparison final | segment=%s mode=%s text=%r inference=%.2fs",
+                        job.utterance_id, mode.value, text, elapsed)
+                self.signals.mode_status.emit(
+                    job.utterance_id, mode.value,
+                    "Expired" if expired else
+                    "Final" if job.final else "Partial" if text else "Listening")
+            except Exception as exc:
+                log_exception(f"ASR-{mode.value.upper()}", exc)
+                self.signals.mode_error.emit(job.utterance_id, mode.value, str(exc))
