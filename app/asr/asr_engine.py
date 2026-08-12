@@ -20,7 +20,7 @@ from app.config.settings import PerformanceMode
 from app.config.decoding_policy import hotwords, initial_prompt, retry_thresholds
 from app.utils.logger import get_logger, log_exception
 from app.processing.text_processing import (
-    apply_script_mode, clean_text, detect_language, is_low_quality_text,
+    apply_script_mode, clean_text, detect_language, is_low_quality_text, script_metadata,
 )
 
 
@@ -70,7 +70,7 @@ class WhisperEngine:
                                device, exc)
         raise RuntimeError(f"Could not load Whisper model: {last_error}")
 
-    def transcribe(self, job: ASRJob, context: str) -> tuple[str, str]:
+    def transcribe(self, job: ASRJob, context: str) -> tuple[str, str, dict]:
         profile = self.config.profile
         # Repeated partials must be inexpensive. The selected profile is retained
         # for final correction, while live hypotheses use deterministic greedy
@@ -161,11 +161,12 @@ class WhisperEngine:
                     )
             if not accepted:
                 LOGGER.debug(f"[ASR] no usable segments returned (segments={segment_count})")
-            decoded = clean_text(" ".join(accepted), final=job.final)
+            raw_text = " ".join(accepted).strip()
+            decoded = clean_text(raw_text, final=job.final)
             LOGGER.debug(f"[ASR-TEXT] accepted={len(accepted)}/{segment_count} cleaned={decoded!r}")
-            return decoded, decode_info
+            return decoded, decode_info, raw_text
 
-        text, info = decode(prompt, vocabulary_bias)
+        text, info, raw_text = decode(prompt, vocabulary_bias)
         if (len(job.audio) / self.config.sample_rate < 2.0 and
                 text.casefold() in KNOWN_SHORT_HALLUCINATIONS):
             LOGGER.debug(f"[ASR] rejected known short-audio hallucination: {text!r}")
@@ -175,7 +176,7 @@ class WhisperEngine:
             text = ""
         if not text and job.final:
             LOGGER.debug("[ASR] final was unusable; retrying prompt-free with recovery thresholds")
-            text, info = decode(None, None, relaxed=True)
+            text, info, raw_text = decode(None, None, relaxed=True)
             if (len(job.audio) / self.config.sample_rate < 2.0 and
                     text.casefold() in KNOWN_SHORT_HALLUCINATIONS):
                 LOGGER.debug(f"[ASR] rejected known fallback hallucination: {text!r}")
@@ -183,12 +184,42 @@ class WhisperEngine:
             if is_low_quality_text(text):
                 LOGGER.debug(f"[ASR] rejected corrupt/repetitive fallback: {text!r}")
                 text = ""
-        text = apply_script_mode(text, self.config.script_mode, self.config.vocabulary)
+        after_language = text
+        after_transliteration = apply_script_mode(
+            after_language, self.config.script_mode, self.config.vocabulary)
+        text = clean_text(after_transliteration, final=job.final)
         language_probability = float(getattr(info, "language_probability", 0.0) or 0.0)
+        metadata = script_metadata(text, self.config.script_mode, self.config.language_mode)
+        metadata.update({
+            "raw_text": raw_text, "processed_text": text,
+            "detected_language": getattr(info, "language", None) or self.config.language_mode,
+        })
+        LOGGER.debug(
+            "[ASR-PIPELINE] raw=%r detected_language=%r recognition=%s script_mode=%s "
+            "after_language=%r after_transliteration=%r after_normalization=%r "
+            "translation=%s final_candidate=%r detected_script=%s script_valid=%s",
+            raw_text, getattr(info, "language", None), self.config.language_mode,
+            self.config.script_mode, after_language, after_transliteration, text,
+            "enabled-downstream" if self.config.translation_enabled else "off",
+            text, metadata["detected_script"], metadata["script_valid"])
+        if not metadata["script_valid"]:
+            LOGGER.warning(
+                "Unexpected Arabic/Urdu or mismatched script detected for Hindi/Hinglish "
+                "segment | utterance=%s raw=%r detected=%s requested=%s",
+                job.utterance_id, raw_text, metadata["detected_script"],
+                self.config.script_mode)
         LOGGER.debug(f"[ASR-TEXT] post_script={text!r} detected={getattr(info, 'language', None)!r} "
                   f"probability={language_probability:.3f}")
         mode = detect_language(text, getattr(info, "language", None))
-        return text, mode
+        return text, mode, metadata
+
+
+def _unpack_transcription(result) -> tuple[str, str, dict]:
+    """Accept legacy two-item test/integration engines while carrying metadata."""
+    if len(result) == 3:
+        return result
+    text, language = result
+    return text, language, {}
 
 
 class WhisperModelProvider:
@@ -256,7 +287,10 @@ class ASRWorker:
                     continue
                 stop_empty_since = None
                 started = time.monotonic()
-                text, language = engine.transcribe(job, " ".join(self.history))
+                text, language, metadata = _unpack_transcription(
+                    engine.transcribe(job, " ".join(self.history)))
+                if not metadata.get("script_valid", True):
+                    text = ""
                 elapsed = time.monotonic() - started
                 duration = len(job.audio) / self.config.sample_rate
                 latency = time.monotonic() - job.captured_at
@@ -384,7 +418,8 @@ class ComparisonASRWorker:
             self.signals.mode_status.emit(job.utterance_id, mode.value, "Processing")
             started = time.monotonic()
             try:
-                text, language = engine.transcribe(job, " ".join(self.histories[mode]))
+                text, language, script = _unpack_transcription(
+                    engine.transcribe(job, " ".join(self.histories[mode])))
                 elapsed = time.monotonic() - started
                 result_latency = (time.monotonic() - job.captured_at
                                   if job.captured_at > 0 else elapsed)
@@ -393,6 +428,8 @@ class ComparisonASRWorker:
                 if text and job.final:
                     self.histories[mode].append(text)
                 metrics = {
+                    "segment_id": job.utterance_id,
+                    "mode": mode.value,
                     "asr_time": elapsed,
                     "queue_delay": (max(0.0, started - job.captured_at)
                                     if job.captured_at > 0 else 0.0),
@@ -404,14 +441,16 @@ class ComparisonASRWorker:
                     "memory_mb": process.memory_info().rss / 1024 ** 2,
                     "language": language, "start_time": job.audio_start_time,
                     "end_time": job.audio_end_time,
+                    **script,
                 }
                 # The latency target is diagnostic, not a destructive timeout.
                 # Slow CPU inference cannot be cancelled safely, so throwing its
                 # eventual transcript away leaves a permanent blank row after
                 # the user has already waited for it.
-                if text or job.final:
+                display_text = text if script.get("script_valid", True) else ""
+                if display_text or job.final:
                     self.signals.mode_text.emit(
-                        job.utterance_id, mode.value, text, job.final, metrics)
+                        job.utterance_id, mode.value, display_text, job.final, metrics)
                 if late:
                     LOGGER.warning(
                         "ASR result exceeded latency target but was retained | "

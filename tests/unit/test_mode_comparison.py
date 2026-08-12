@@ -5,7 +5,7 @@ import time
 
 import numpy as np
 
-from app.asr.asr_engine import ComparisonASRWorker
+from app.asr.asr_engine import ComparisonASRWorker, WhisperEngine
 from app.audio.audio_pipeline import ASRJob
 from app.config.settings import AppConfig, PERFORMANCE_PROFILES, PerformanceMode
 from evaluation.mode_comparison import build_comparison, render_markdown
@@ -193,3 +193,55 @@ def test_results_older_than_latency_target_are_still_decoded_and_displayed():
     assert all(item[2] == "late" and item[3] is True
                for item in signals.mode_text.values)
     assert {item[2] for item in signals.mode_status.values} == {"Processing", "Final"}
+
+
+def test_wrong_script_refinement_never_replaces_valid_fast_hindi():
+    class Provider:
+        def get(self, config):
+            def transcribe(_job, _context):
+                if config.performance_mode is PerformanceMode.FAST:
+                    return ("आपको क्या करना है?", "Hindi", {
+                        "raw_text": "आपको क्या करना है?", "processed_text": "आपको क्या करना है?",
+                        "detected_script": "devanagari", "requested_script": "original",
+                        "script_valid": True,
+                    })
+                return ("آپ کو کیا کرنا ہے؟", "Hindi", {
+                    "raw_text": "آپ کو کیا کرنا ہے؟", "processed_text": "آپ کو کیا کرنا ہے؟",
+                    "detected_script": "arabic", "requested_script": "original",
+                    "script_valid": False,
+                })
+            return SimpleNamespace(transcribe=transcribe)
+
+    signals = SimpleNamespace(mode_text=SignalRecorder(), mode_status=SignalRecorder(),
+                              mode_error=SignalRecorder())
+    queue = Queue()
+    queue.put(ASRJob(np.ones(1600, dtype=np.float32), True, 42, 0.0))
+    stop = Event(); stop.set()
+    ComparisonASRWorker(AppConfig(language_mode="hi"), queue, stop, signals, Provider()).run()
+
+    displayed = {item[1]: item[2] for item in signals.mode_text.values}
+    assert displayed["fast"] == "आपको क्या करना है?"
+    assert displayed["balanced"] == displayed["accurate"] == ""
+    invalid_metrics = [item[4] for item in signals.mode_text.values if item[1] != "fast"]
+    assert all(item["detected_script"] == "arabic" and not item["script_valid"]
+               for item in invalid_metrics)
+
+
+def test_whisper_raw_arabic_evidence_is_preserved_and_flagged_before_display():
+    segment = SimpleNamespace(
+        start=0.0, end=1.0, no_speech_prob=0.0, avg_logprob=0.0,
+        compression_ratio=1.0, text=" آپ کو کیا کرنا ہے؟ ")
+    info = SimpleNamespace(language="hi", language_probability=0.98)
+    model = SimpleNamespace(transcribe=lambda *_args, **_kwargs: ([segment], info))
+    engine = WhisperEngine(AppConfig(language_mode="hi", script_mode="original"), model)
+
+    text, language, metadata = engine.transcribe(
+        ASRJob(np.ones(16000, dtype=np.float32), True, 43, 0.0), "")
+
+    assert text == "آپ کو کیا کرنا ہے؟"
+    assert language == "Hindi"
+    assert metadata["raw_text"] == "آپ کو کیا کرنا ہے؟"
+    assert metadata["processed_text"] == text
+    assert metadata["detected_language"] == "hi"
+    assert metadata["detected_script"] == "arabic"
+    assert metadata["script_valid"] is False

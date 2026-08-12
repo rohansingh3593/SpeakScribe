@@ -5,9 +5,37 @@ from app.processing.text_processing import (
     apply_script_mode, best_refinement_candidate, clean_text, comparison_agreement_percentages,
     comparison_diff_html, compose_live_transcript, descending_segment_row, detect_language,
     format_processing_duration, format_recording_time, incremental_transcript_delta,
-    is_low_quality_text,
+    is_low_quality_text, script_metadata,
     remove_history_overlap,
 )
+
+
+def test_hindi_script_metadata_classifies_devanagari_latin_and_arabic():
+    devanagari = script_metadata("आपको क्या करना है?", "original", "hi")
+    latin = script_metadata("Aaj mujhe office jana hai", "latin", "hi")
+    arabic = script_metadata("آپ کو کیا کرنا ہے؟", "original", "hi")
+
+    assert devanagari["detected_script"] == "devanagari"
+    assert devanagari["script_valid"] is True
+    assert latin["detected_script"] == "latin"
+    assert latin["script_valid"] is True
+    assert arabic["detected_script"] == "arabic"
+    assert arabic["script_valid"] is False
+    assert arabic["arabic_character_ratio"] > 0.9
+
+
+def test_hindi_script_metrics_preserve_technical_terms_and_numbers():
+    text = "आज SQLAlchemy dependency update करनी है और meeting 10:30 बजे है।"
+    metadata = script_metadata(text, "devanagari", "hi")
+    assert metadata["detected_script"] == "mixed-devanagari-latin"
+    assert metadata["script_match"] is True
+    assert "SQLAlchemy" in text and "10:30" in text
+
+
+def test_english_script_validation_is_not_changed_by_hindi_policy():
+    metadata = script_metadata("Use the API", "original", "en")
+    assert metadata["detected_script"] == "latin"
+    assert metadata["script_valid"] is True
 
 
 def test_hinglish_detection():

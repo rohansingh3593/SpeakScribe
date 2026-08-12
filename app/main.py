@@ -34,6 +34,8 @@ from app.processing.text_processing import (
     remove_history_overlap,
 )
 
+LOGGER = get_logger("ui")
+
 
 class SpeechSignals(QObject):
     partial_text = pyqtSignal(str)
@@ -223,7 +225,7 @@ class MainWindow(QWidget):
         self.display_mode.setToolTip(
             "Progressive replaces one live output as Fast, Balanced, then Accurate complete")
         self.script = QComboBox()
-        self.script.addItems(["Original", "Latin", "Devanagari"])
+        self.script.addItems(["Original", "Devanagari", "Latin / Roman"])
         self.script.setMinimumWidth(125)
         self.language_mode = QComboBox()
         self.language_mode.addItems(["Hindi / Hinglish", "Auto", "English"])
@@ -578,18 +580,26 @@ class MainWindow(QWidget):
                        final: bool, metrics: dict) -> None:
         state = self._ensure_segment(segment_id, metrics)
         mode_state = state["modes"][mode_name]
+        mode_state["metadata"] = metrics
+        script_valid = metrics.get("script_valid", True)
         if final:
-            mode_state["raw"] = text
+            mode_state["raw"] = text if script_valid else None
             mode_state["partial"] = ""
             mode_state["status"] = "FINAL"
             mode_state["latency"] = metrics.get("final_latency")
             mode_state["processing_started"] = None
         else:
-            mode_state["partial"] = text
+            mode_state["partial"] = text if script_valid else ""
             mode_state["status"] = "PARTIAL"
             mode_state["latency"] = metrics.get("first_partial_latency")
             mode_state["processing_started"] = None
         self._render_segment(segment_id)
+        LOGGER.debug(
+            "[FINAL DISPLAY] segment=%s mode=%s raw=%r processed=%r displayed=%r "
+            "detected_language=%s detected_script=%s requested_script=%s script_valid=%s",
+            segment_id, mode_name, metrics.get("raw_text"), metrics.get("processed_text"),
+            state.get("display_text"), metrics.get("detected_language"),
+            metrics.get("detected_script"), metrics.get("requested_script"), script_valid)
 
     def _render_segment(self, segment_id: int, refresh_successor: bool = True) -> None:
         state = self.segment_states[segment_id]
@@ -737,8 +747,10 @@ class MainWindow(QWidget):
         recognition_modes = {
             "Hindi / Hinglish": "hi", "Auto": "auto", "English": "en",
         }
+        selected_script = self.script.currentText().lower()
         config = AppConfig(performance_mode=mode,
-                           script_mode=self.script.currentText().lower(),
+                           script_mode=("latin" if selected_script == "latin / roman"
+                                        else selected_script),
                            language_mode=recognition_modes[self.language_mode.currentText()],
                            capture_source=("loopback" if self.capture_source.currentText() ==
                                            "System audio (legacy)" else "microphone"),
