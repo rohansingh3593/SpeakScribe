@@ -480,7 +480,7 @@ class MainWindow(QWidget):
     def _sync_display_mode(self, *_args) -> None:
         self.comparison_panel.hide()
         self.record_output.hide()
-        self.performance_label.setText("FAST + BALANCED + ACCURATE — shared audio segments")
+        self.performance_label.setText("FAST live transcription — refinements deferred")
 
     @property
     def selected_transcript(self) -> str:
@@ -554,7 +554,9 @@ class MainWindow(QWidget):
             self.segment_rows[segment_id] = row
             state = {"start": 0.0, "end": 0.0, "display_text": "",
                      "display_source": None, "modes": {
-                mode.value: {"raw": None, "partial": "", "status": "WAITING",
+                mode.value: {"raw": None, "partial": "",
+                             "status": ("WAITING" if mode is PerformanceMode.FAST
+                                        else "DEFERRED"),
                              "latency": None, "processing_started": None}
                 for mode in PerformanceMode}}
             self.segment_states[segment_id] = state
@@ -652,7 +654,7 @@ class MainWindow(QWidget):
         timing_text = " · ".join(timing) or "waiting for first result"
         if not display_text:
             statuses = {item["status"] for item in state["modes"].values()}
-            terminal = {"FINAL", "ERROR", "SCRIPT MISMATCH"}
+            terminal = {"FINAL", "ERROR", "SCRIPT MISMATCH", "DEFERRED"}
             if statuses <= terminal and "SCRIPT MISMATCH" in statuses:
                 body = ("<i>Hindi speech was recognized, but every result used an "
                         "unexpected script. Nothing unsafe was displayed.</i><br>"
@@ -756,8 +758,9 @@ class MainWindow(QWidget):
         self.ever_started = True
         run_all = True
         compare_all = True
-        # Fast cadence publishes snapshots soon enough for every comparison row;
-        # each decoder still uses its own profile on the exact same ASRJob audio.
+        # Live capture must not queue minutes of immutable audio while Whisper
+        # runs slower than real time. FAST uses newest-value scheduling; profile
+        # comparisons belong to the prerecorded evaluation path.
         mode = (PerformanceMode.FAST if run_all else
                 PerformanceMode(self.performance.currentText().lower()))
         recognition_modes = {
@@ -774,11 +777,11 @@ class MainWindow(QWidget):
                            # CPU comparison can finalize slower than capture.
                            # Never let ASR backpressure stop VAD from draining
                            # the one shared capture stream.
-                           asr_keep_latest_final=False,
-                           max_audio_queue=400 if run_all else 100,
-                           max_asr_queue=8,
-                           max_utterance_seconds=4.0 if run_all else 15.0)
-        self.performance_label.setText("FAST + BALANCED + ACCURATE — shared audio segments")
+                           asr_keep_latest_final=True,
+                           max_audio_queue=100,
+                           max_asr_queue=1,
+                           max_utterance_seconds=15.0)
+        self.performance_label.setText("FAST live transcription — refinements deferred")
         self.status.setText("Starting…")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)

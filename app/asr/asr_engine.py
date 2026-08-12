@@ -321,7 +321,7 @@ class ASRWorker:
 
 
 class ComparisonASRWorker:
-    """Decode live snapshots with FAST and refine finalized audio in all modes."""
+    """Keep live capture real-time by decoding the active stream with FAST."""
 
     def __init__(self, config: AppConfig, queue: Queue, stop_event: Event, signals,
                  model_provider: WhisperModelProvider):
@@ -353,7 +353,12 @@ class ComparisonASRWorker:
             # Live snapshots are latency-sensitive and supersede one another.
             # Running the two refinement profiles for every snapshot starves
             # FAST on CPU-only systems; they receive the finalized audio below.
-            target_modes = PerformanceMode if job.final else (PerformanceMode.FAST,)
+            # Refinement models cannot run concurrently with FAST on the common
+            # CPU fallback without starving the live stream. A 4-second final
+            # was taking 30-100 seconds in production and making capture drift
+            # minutes behind. Keep the recording path exclusively FAST; offline
+            # evaluation remains available for side-by-side profile comparison.
+            target_modes = (PerformanceMode.FAST,)
             for mode in target_modes:
                 mode_queue = queues[mode]
                 self._enqueue_mode_job(mode, mode_queue, job)

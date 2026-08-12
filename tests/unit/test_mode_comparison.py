@@ -60,7 +60,7 @@ class SignalRecorder:
         self.values.append(values)
 
 
-def test_comparison_worker_fans_same_audio_to_three_isolated_modes():
+def test_live_worker_runs_final_audio_in_fast_mode_without_refinement_contention():
     calls = []
 
     class Provider:
@@ -82,10 +82,10 @@ def test_comparison_worker_fans_same_audio_to_three_isolated_modes():
     stop.set()
     ComparisonASRWorker(AppConfig(), queue, stop, signals, Provider()).run()
 
-    assert {mode for mode, _audio in calls} == set(PerformanceMode)
+    assert {mode for mode, _audio in calls} == {PerformanceMode.FAST}
     assert all(shared is audio for _mode, shared in calls)
-    assert {value[1] for value in signals.mode_text.values} == {"fast", "accurate"}
-    assert signals.mode_error.values[0][1] == "balanced"
+    assert {value[1] for value in signals.mode_text.values} == {"fast"}
+    assert signals.mode_error.values == []
 
 
 def test_comparison_worker_runs_live_partials_in_fast_mode_only():
@@ -152,6 +152,25 @@ def test_mode_queue_partial_replaces_obsolete_partials_and_preserves_finals():
     assert queue.empty()
 
 
+def test_latest_final_replaces_queued_final_when_live_asr_is_behind():
+    from app.audio.audio_pipeline import SpeechBufferWorker
+
+    config = AppConfig(asr_keep_latest_final=True, max_asr_queue=1)
+    asr_queue = Queue(maxsize=1)
+    audio_queue = Queue()
+    stop = Event()
+    worker = SpeechBufferWorker(config, audio_queue, asr_queue, stop)
+    audio = np.ones(10, dtype=np.float32)
+    stale = ASRJob(audio, True, 70, 0.0)
+    newest = ASRJob(audio, True, 71, 0.0)
+    asr_queue.put(stale)
+
+    worker._submit(newest)
+
+    assert asr_queue.get_nowait() is newest
+    assert asr_queue.empty()
+
+
 def test_empty_partial_returns_to_listening_instead_of_blank_partial_cell():
     class Provider:
         def get(self, _config):
@@ -187,15 +206,14 @@ def test_results_older_than_latency_target_are_still_decoded_and_displayed():
 
     ComparisonASRWorker(AppConfig(), queue, stop, signals, Provider()).run()
 
-    assert len(calls) == len(PerformanceMode)
-    assert {item[1] for item in signals.mode_text.values} == {
-        "fast", "balanced", "accurate"}
+    assert len(calls) == 1
+    assert {item[1] for item in signals.mode_text.values} == {"fast"}
     assert all(item[2] == "late" and item[3] is True
                for item in signals.mode_text.values)
     assert {item[2] for item in signals.mode_status.values} == {"Processing", "Final"}
 
 
-def test_wrong_script_refinement_never_replaces_valid_fast_hindi():
+def test_live_fast_hindi_result_is_emitted_with_script_metadata():
     class Provider:
         def get(self, config):
             def transcribe(_job, _context):
@@ -221,13 +239,10 @@ def test_wrong_script_refinement_never_replaces_valid_fast_hindi():
 
     displayed = {item[1]: item[2] for item in signals.mode_text.values}
     assert displayed["fast"] == "आपको क्या करना है?"
-    assert displayed["balanced"] == displayed["accurate"] == ""
-    invalid_metrics = [item[4] for item in signals.mode_text.values if item[1] != "fast"]
-    assert all(item["detected_script"] == "arabic" and not item["script_valid"]
-               for item in invalid_metrics)
+    assert set(displayed) == {"fast"}
     mismatch_modes = {item[1] for item in signals.mode_status.values
                       if item[2] == "Script mismatch"}
-    assert mismatch_modes == {"balanced", "accurate"}
+    assert mismatch_modes == set()
 
 
 def test_invalid_final_is_not_added_to_future_asr_context():
