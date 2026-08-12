@@ -189,6 +189,57 @@ def test_empty_partial_returns_to_listening_instead_of_blank_partial_cell():
             if item[2] == "Listening"} == {(9, "fast", "Listening")}
 
 
+def test_empty_final_promotes_latest_valid_partial_instead_of_no_speech():
+    calls = 0
+
+    class Provider:
+        def get(self, _config):
+            def transcribe(job, _context):
+                nonlocal calls
+                calls += 1
+                return (("पहचाना हुआ हिंदी भाषण", "Hindi", {"script_valid": True})
+                        if not job.final else ("", "Hindi", {"script_valid": True}))
+            return SimpleNamespace(transcribe=transcribe)
+
+    signals = SimpleNamespace(mode_text=SignalRecorder(), mode_status=SignalRecorder(),
+                              mode_error=SignalRecorder())
+    upstream = Queue()
+    audio = np.ones(1600, dtype=np.float32)
+    mode_queue = Queue()
+    mode_queue.put(ASRJob(audio, False, 90, 0.0))
+    mode_queue.put(ASRJob(audio, True, 90, 0.0))
+    mode_queue.put(None)
+    stop = Event(); stop.set()
+
+    worker = ComparisonASRWorker(
+        AppConfig(language_mode="hi"), upstream, stop, signals, Provider())
+    worker._run_mode(PerformanceMode.FAST, mode_queue)
+
+    finals = [item for item in signals.mode_text.values if item[3] is True]
+    assert calls == 2
+    assert finals[0][2] == "पहचाना हुआ हिंदी भाषण"
+    assert finals[0][4]["recovered_from_partial"] is True
+    assert any(item == (90, "fast", "Final") for item in signals.mode_status.values)
+
+
+def test_empty_final_without_partial_is_terminal_but_not_displayed():
+    class Provider:
+        def get(self, _config):
+            return SimpleNamespace(transcribe=lambda _job, _context: (
+                "", "Hindi", {"script_valid": True}))
+
+    signals = SimpleNamespace(mode_text=SignalRecorder(), mode_status=SignalRecorder(),
+                              mode_error=SignalRecorder())
+    queue = Queue()
+    queue.put(ASRJob(np.ones(1600, dtype=np.float32), True, 91, 0.0))
+    stop = Event(); stop.set()
+
+    ComparisonASRWorker(AppConfig(language_mode="hi"), queue, stop, signals, Provider()).run()
+
+    assert signals.mode_text.values == []
+    assert any(item == (91, "fast", "No speech") for item in signals.mode_status.values)
+
+
 def test_results_older_than_latency_target_are_still_decoded_and_displayed():
     calls = []
 
@@ -289,8 +340,7 @@ def test_consecutive_identical_fast_finals_are_marked_duplicate():
 
     emitted = {item[0]: item for item in signals.mode_text.values}
     assert emitted[80][2] == "यह एक सही हिंदी वाक्य है।"
-    assert emitted[81][2] == ""
-    assert emitted[81][4]["duplicate"] is True
+    assert 81 not in emitted
     assert any(item == (81, "fast", "Duplicate") for item in signals.mode_status.values)
 
 

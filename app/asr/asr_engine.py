@@ -353,6 +353,7 @@ class ComparisonASRWorker:
         self.histories = {mode: deque(maxlen=AppConfig(
             performance_mode=mode).context_sentences) for mode in PerformanceMode}
         self.first_seen: dict[tuple[int, PerformanceMode], float] = {}
+        self.latest_partials: dict[tuple[int, PerformanceMode], tuple[str, str, dict]] = {}
 
     def run(self) -> None:
         # Do not even construct/load idle refinement engines in a live session.
@@ -450,6 +451,21 @@ class ComparisonASRWorker:
             try:
                 text, language, script = _unpack_transcription(
                     engine.transcribe(job, " ".join(self.histories[mode])))
+                partial_key = (job.utterance_id, mode)
+                recovered_from_partial = False
+                if not job.final and text and script.get("script_valid", True):
+                    self.latest_partials[partial_key] = (text, language, script)
+                elif job.final and not text and partial_key in self.latest_partials:
+                    # The rolling decode already recognized useful speech, but
+                    # final confidence gates can reject the longer 15-second
+                    # window. Promote the newest safe hypothesis rather than
+                    # replacing visible Hindi with a misleading no-speech row.
+                    text, language, script = self.latest_partials[partial_key]
+                    recovered_from_partial = True
+                    LOGGER.info("Recovered empty final from latest valid partial | segment=%s "
+                                "mode=%s", job.utterance_id, mode.value)
+                if job.final:
+                    self.latest_partials.pop(partial_key, None)
                 elapsed = time.monotonic() - started
                 result_latency = (time.monotonic() - job.captured_at
                                   if job.captured_at > 0 else elapsed)
@@ -477,6 +493,7 @@ class ComparisonASRWorker:
                     "language": language, "start_time": job.audio_start_time,
                     "end_time": job.audio_end_time,
                     "duplicate": duplicate,
+                    "recovered_from_partial": recovered_from_partial,
                     **script,
                 }
                 # The latency target is diagnostic, not a destructive timeout.
@@ -484,7 +501,7 @@ class ComparisonASRWorker:
                 # eventual transcript away leaves a permanent blank row after
                 # the user has already waited for it.
                 display_text = text if script_valid and not duplicate else ""
-                if display_text or job.final:
+                if display_text:
                     self.signals.mode_text.emit(
                         job.utterance_id, mode.value, display_text, job.final, metrics)
                 if late:
@@ -501,7 +518,8 @@ class ComparisonASRWorker:
                     job.utterance_id, mode.value,
                     "Script mismatch" if not script_valid else
                     "Duplicate" if duplicate else
-                    "Final" if job.final else "Partial" if text else "Listening")
+                    "Final" if job.final and text else
+                    "No speech" if job.final else "Partial" if text else "Listening")
             except Exception as exc:
                 log_exception(f"ASR-{mode.value.upper()}", exc)
                 self.signals.mode_error.emit(job.utterance_id, mode.value, str(exc))

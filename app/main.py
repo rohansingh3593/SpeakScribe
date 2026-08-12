@@ -748,7 +748,7 @@ class MainWindow(QWidget):
             self.mode_outputs[mode].setHtml("".join(parts))
 
     def show_mode_status(self, segment_id: int, mode_name: str, status: str) -> None:
-        if status.upper() == "DUPLICATE":
+        if status.upper() in {"DUPLICATE", "NO SPEECH"}:
             self._remove_segment(segment_id)
             return
         state = self._ensure_segment(segment_id)
