@@ -287,7 +287,7 @@ class ASRWorker:
 
 
 class ComparisonASRWorker:
-    """Decode each immutable ASR snapshot under all profiles off the GUI thread."""
+    """Decode live partials with FAST and final snapshots with every profile."""
 
     def __init__(self, config: AppConfig, queue: Queue, stop_event: Event, signals,
                  model_provider: WhisperModelProvider):
@@ -316,7 +316,13 @@ class ComparisonASRWorker:
                     break
                 continue
             stop_empty_since = None
-            for mode, mode_queue in queues.items():
+            # Progressive text is latency-sensitive.  Sending each rolling
+            # snapshot through all three models lets refinement work starve the
+            # FAST worker, particularly on CPU.  Finals still go to every mode
+            # so the combined transcript retains Balanced/Accurate refinement.
+            target_modes = PerformanceMode if job.final else (PerformanceMode.FAST,)
+            for mode in target_modes:
+                mode_queue = queues[mode]
                 self._enqueue_mode_job(mode, mode_queue, job)
         for mode_queue in queues.values():
             mode_queue.put(None)
@@ -338,11 +344,35 @@ class ComparisonASRWorker:
                 queue.put(pending)
             queue.put(job)
             return
+
+        # A partial is a replaceable snapshot, not an ordered event.  Retain
+        # finals, discard every obsolete pending partial, and enqueue only the
+        # freshest snapshot.  This also prevents an older utterance's partial
+        # from delaying the current utterance after the decoder falls behind.
+        retained_finals = []
+        coalesced = 0
+        while True:
+            try:
+                pending = queue.get_nowait()
+            except Empty:
+                break
+            if pending.final:
+                retained_finals.append(pending)
+            else:
+                coalesced += 1
+        for pending in retained_finals:
+            queue.put(pending)
         try:
             queue.put_nowait(job)
         except Full:
-            LOGGER.debug("Dropped stale partial | mode=%s segment=%s",
+            # A queue containing only finals must never lose one to make room
+            # for lower-value live output.
+            LOGGER.debug("Dropped partial behind final backlog | mode=%s segment=%s",
                          mode.value, job.utterance_id)
+            return
+        if coalesced:
+            LOGGER.debug("Coalesced stale partials | mode=%s segment=%s count=%s",
+                         mode.value, job.utterance_id, coalesced)
 
     def _run_mode(self, mode: PerformanceMode, queue: Queue) -> None:
         config = AppConfig(**{**self.config.__dict__, "performance_mode": mode})
