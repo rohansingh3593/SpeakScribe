@@ -425,7 +425,8 @@ class ComparisonASRWorker:
                                   if job.captured_at > 0 else elapsed)
                 duration = len(job.audio) / config.sample_rate
                 late = result_latency >= config.max_result_latency_seconds
-                if text and job.final:
+                script_valid = script.get("script_valid", True)
+                if text and job.final and script_valid:
                     self.histories[mode].append(text)
                 metrics = {
                     "segment_id": job.utterance_id,
@@ -447,7 +448,7 @@ class ComparisonASRWorker:
                 # Slow CPU inference cannot be cancelled safely, so throwing its
                 # eventual transcript away leaves a permanent blank row after
                 # the user has already waited for it.
-                display_text = text if script.get("script_valid", True) else ""
+                display_text = text if script_valid else ""
                 if display_text or job.final:
                     self.signals.mode_text.emit(
                         job.utterance_id, mode.value, display_text, job.final, metrics)
@@ -463,6 +464,7 @@ class ComparisonASRWorker:
                         job.utterance_id, mode.value, text, elapsed)
                 self.signals.mode_status.emit(
                     job.utterance_id, mode.value,
+                    "Script mismatch" if not script_valid else
                     "Final" if job.final else "Partial" if text else "Listening")
             except Exception as exc:
                 log_exception(f"ASR-{mode.value.upper()}", exc)

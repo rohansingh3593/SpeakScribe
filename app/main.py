@@ -583,14 +583,23 @@ class MainWindow(QWidget):
         mode_state["metadata"] = metrics
         script_valid = metrics.get("script_valid", True)
         if final:
-            mode_state["raw"] = text if script_valid else None
-            mode_state["partial"] = ""
-            mode_state["status"] = "FINAL"
+            if script_valid:
+                mode_state["raw"] = text
+                mode_state["partial"] = ""
+                mode_state["status"] = "FINAL"
+            else:
+                # Do not erase a valid live hypothesis merely because the final
+                # refinement came back in an invalid script. Keep displaying
+                # that hypothesis while the other profiles get their chance.
+                mode_state["status"] = "SCRIPT MISMATCH"
             mode_state["latency"] = metrics.get("final_latency")
             mode_state["processing_started"] = None
         else:
-            mode_state["partial"] = text if script_valid else ""
-            mode_state["status"] = "PARTIAL"
+            if script_valid:
+                mode_state["partial"] = text
+                mode_state["status"] = "PARTIAL"
+            else:
+                mode_state["status"] = "SCRIPT MISMATCH"
             mode_state["latency"] = metrics.get("first_partial_latency")
             mode_state["processing_started"] = None
         self._render_segment(segment_id)
@@ -643,9 +652,15 @@ class MainWindow(QWidget):
         timing_text = " · ".join(timing) or "waiting for first result"
         if not display_text:
             statuses = {item["status"] for item in state["modes"].values()}
-            body = ("<i>No speech was recognized in this segment.</i>"
-                    if statuses <= {"FINAL", "ERROR"} else
-                    f"<i>Processing speech…</i><br><small>{timing_text}</small>")
+            terminal = {"FINAL", "ERROR", "SCRIPT MISMATCH"}
+            if statuses <= terminal and "SCRIPT MISMATCH" in statuses:
+                body = ("<i>Hindi speech was recognized, but every result used an "
+                        "unexpected script. Nothing unsafe was displayed.</i><br>"
+                        f"<small>{timing_text}</small>")
+            elif statuses <= terminal:
+                body = "<i>No speech was recognized in this segment.</i>"
+            else:
+                body = f"<i>Processing speech…</i><br><small>{timing_text}</small>"
         else:
             badge = source.value.upper()
             body = (f'<div style="font-size:15px">{escape(display_text)}</div>'
@@ -724,7 +739,8 @@ class MainWindow(QWidget):
         mode_state["status"] = status.upper()
         if status.upper() == "PROCESSING" and mode_state["processing_started"] is None:
             mode_state["processing_started"] = time.monotonic()
-        elif status.upper() in {"FINAL", "ERROR", "EXPIRED", "LISTENING", "PARTIAL"}:
+        elif status.upper() in {
+                "FINAL", "ERROR", "EXPIRED", "LISTENING", "PARTIAL", "SCRIPT MISMATCH"}:
             mode_state["processing_started"] = None
         if status.upper() == "LISTENING":
             mode_state["partial"] = ""

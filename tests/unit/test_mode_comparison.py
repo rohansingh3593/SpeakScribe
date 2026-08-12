@@ -225,6 +225,35 @@ def test_wrong_script_refinement_never_replaces_valid_fast_hindi():
     invalid_metrics = [item[4] for item in signals.mode_text.values if item[1] != "fast"]
     assert all(item["detected_script"] == "arabic" and not item["script_valid"]
                for item in invalid_metrics)
+    mismatch_modes = {item[1] for item in signals.mode_status.values
+                      if item[2] == "Script mismatch"}
+    assert mismatch_modes == {"balanced", "accurate"}
+
+
+def test_invalid_final_is_not_added_to_future_asr_context():
+    contexts = []
+
+    class Provider:
+        def get(self, _config):
+            def transcribe(_job, context):
+                contexts.append(context)
+                return ("آپ کو کیا کرنا ہے؟", "Hindi", {
+                    "detected_script": "arabic", "script_valid": False})
+            return SimpleNamespace(transcribe=transcribe)
+
+    signals = SimpleNamespace(mode_text=SignalRecorder(), mode_status=SignalRecorder(),
+                              mode_error=SignalRecorder())
+    queue = Queue()
+    audio = np.ones(1600, dtype=np.float32)
+    queue.put(ASRJob(audio, True, 50, 0.0))
+    queue.put(ASRJob(audio, True, 51, 0.0))
+    stop = Event(); stop.set()
+
+    ComparisonASRWorker(AppConfig(language_mode="hi"), queue, stop, signals, Provider()).run()
+
+    assert contexts and all(context == "" for context in contexts)
+    assert {item[2] for item in signals.mode_status.values} == {
+        "Processing", "Script mismatch"}
 
 
 def test_whisper_raw_arabic_evidence_is_preserved_and_flagged_before_display():
