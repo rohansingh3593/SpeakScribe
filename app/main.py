@@ -1052,7 +1052,10 @@ class MainWindow(QWidget):
                            # CPU comparison can finalize slower than capture.
                            # Never let ASR backpressure stop VAD from draining
                            # the one shared capture stream.
-                           asr_keep_latest_final=True,
+                           # Final audio is durable. Only partial snapshots may
+                           # be coalesced; replacing an older queued final is
+                           # exactly how accepted Processing text gets lost.
+                           asr_keep_latest_final=False,
                            compare_live_partials=False,
                            max_audio_queue=100,
                            max_asr_queue=1,

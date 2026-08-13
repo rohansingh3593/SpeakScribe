@@ -575,15 +575,17 @@ class ComparisonASRWorker:
                 recovered_from_partial = False
                 if not job.final and text and script.get("script_valid", True):
                     self.latest_partials[partial_key] = (text, language, script)
-                elif job.final and not text and partial_key in self.latest_partials:
-                    # The rolling decode already recognized useful speech, but
-                    # final confidence gates can reject the longer 15-second
-                    # window. Promote the newest safe hypothesis rather than
-                    # replacing visible Hindi with a misleading no-speech row.
+                elif (job.final and partial_key in self.latest_partials and
+                      (not text or not script.get("script_valid", True))):
+                    # A safe partial is better evidence than an empty or
+                    # wrong-script final decode of the exact same audio. This
+                    # is the lifecycle guarantee behind Processing → Final:
+                    # final confidence/script failure must not strand already
+                    # accepted Hindi solely in the temporary panel.
                     text, language, script = self.latest_partials[partial_key]
                     recovered_from_partial = True
-                    LOGGER.info("Recovered empty final from latest valid partial | segment=%s "
-                                "mode=%s", job.utterance_id, mode.value)
+                    LOGGER.info("Promoted latest valid partial after unusable final | "
+                                "segment=%s mode=%s", job.utterance_id, mode.value)
                 if job.final:
                     self.latest_partials.pop(partial_key, None)
                 elapsed = time.monotonic() - started
@@ -592,10 +594,10 @@ class ComparisonASRWorker:
                 duration = len(job.audio) / config.sample_rate
                 late = result_latency >= config.max_result_latency_seconds
                 script_valid = script.get("script_valid", True)
-                duplicate = bool(
-                    text and job.final and script_valid and self.histories[mode] and
-                    clean_text(self.histories[mode][-1]).casefold() ==
-                    clean_text(text).casefold())
+                # Different utterance IDs are different speech events. Do not
+                # discard a legitimate repeated Hindi sentence merely because
+                # its normalized text matches the preceding utterance.
+                duplicate = False
                 if text and job.final:
                     existing = self.histories[mode][-1] if self.histories[mode] else ""
                     similarity = SequenceMatcher(
@@ -604,8 +606,7 @@ class ComparisonASRWorker:
                     pipeline_diagnostics().stage(
                         job.utterance_id, "DEDUP", candidate=text, existing=existing,
                         similarity=similarity,
-                        decision="DROP" if duplicate else "KEEP",
-                        reason="exact_normalized_duplicate" if duplicate else "distinct")
+                        decision="KEEP", reason="distinct_utterance_id")
                 if text and job.final and script_valid and not duplicate and current:
                     self.histories[mode].append(text)
                 stage_timings = getattr(engine, "last_stage_timings", {})

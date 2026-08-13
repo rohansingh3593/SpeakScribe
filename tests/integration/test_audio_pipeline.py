@@ -1,6 +1,7 @@
 from queue import Queue
-from threading import Event
+from threading import Event, Thread
 from types import SimpleNamespace
+import time
 import warnings
 
 import numpy as np
@@ -181,6 +182,23 @@ def test_comparison_backpressure_replaces_stale_final_without_blocking_vad():
 
     worker._submit(newest)
 
+    assert output.get_nowait() is newest
+
+
+def test_live_policy_never_replaces_queued_final_with_newer_final():
+    output = Queue(maxsize=1)
+    old = ASRJob(np.ones(10, dtype=np.float32), True, 11, 0.0)
+    newest = ASRJob(np.ones(10, dtype=np.float32), True, 12, 0.0)
+    output.put(old)
+    stop = Event()
+    worker = SpeechBufferWorker(
+        AppConfig(asr_keep_latest_final=False), Queue(), output, stop)
+
+    submitter = Thread(target=worker._submit, args=(newest,))
+    submitter.start()
+    time.sleep(0.02)
+    assert output.get_nowait() is old
+    submitter.join(1)
     assert output.get_nowait() is newest
 
 
