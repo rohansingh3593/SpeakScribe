@@ -564,3 +564,13 @@ Before any large structural change, review these key proposals:
    clean baseline.
 
 No extraction should proceed until these decisions are approved.
+
+## Exhaustive audit companion reports
+
+The per-file classification, exact audit totals, generated-artifact ledger, overlapping
+implementation comparison, and review-required move/delete candidates are recorded in
+[`repository_file_inventory.md`](repository_file_inventory.md). The capability-to-code,
+test, and characterization-gap mapping is recorded in
+[`functionality_test_matrix.md`](functionality_test_matrix.md). Together these reports
+classify every file in the proposed audit commit; no file is classified `UNKNOWN`, and
+no destructive action has been performed.
