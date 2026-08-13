@@ -67,10 +67,13 @@ class RecordingPanel(QWidget):
         self.performance.setCurrentText("Balanced")
         self.script = QComboBox()
         self.script.addItems(["Original", "Latin", "Devanagari"])
+        self.script.setCurrentText("Original")
         self.recognition = QComboBox()
         self.recognition.addItems(["Hindi / Hinglish", "Auto", "English"])
+        self.recognition.setCurrentText("English")
         self.capture = QComboBox()
         self.capture.addItems(["Microphone", "System audio (loopback)"])
+        self.capture.setCurrentText("System audio (loopback)")
         self.translation = QCheckBox("Translation")
         for label, control in (
                 ("Performance", self.performance), ("Script", self.script),

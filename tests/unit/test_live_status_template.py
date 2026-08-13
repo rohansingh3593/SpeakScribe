@@ -28,3 +28,10 @@ def test_language_shortcut_uses_auto_label_and_mode():
     source = Path("app/main.py").read_text(encoding="utf-8")
     assert 'self.btn_lang_hing = QPushButton("Auto")' in source
     assert 'self.btn_lang_hing.clicked.connect(lambda: self._select_language("Auto"))' in source
+
+
+def test_top_controls_default_to_original_english_system_audio():
+    source = Path("app/main.py").read_text(encoding="utf-8")
+    assert 'self.script.setCurrentText("Original")' in source
+    assert 'self.language_mode.setCurrentText("English")' in source
+    assert 'self.capture_source.setCurrentText("System audio (legacy)")' in source

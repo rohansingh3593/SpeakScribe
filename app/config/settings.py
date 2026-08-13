@@ -78,9 +78,8 @@ class AppConfig:
     # the FAST lane by 13–31 seconds in real Hindi session traces.
     compare_live_partials: bool = True
     sample_rate: int = 16_000
-    # Spoken transcription should use the physical microphone by default.
-    # Speaker loopback remains available for transcribing system playback.
-    capture_source: str = "microphone"
+    # Default to speaker loopback for transcribing system playback.
+    capture_source: str = "loopback"
     capture_sample_rate: int = 16_000
     channels: int = 1
     capture_warmup_blocks: int = 3
@@ -129,9 +128,7 @@ class AppConfig:
     min_avg_logprob: float = -2.0
     max_compression_ratio: float = 2.4
     script_mode: str = "original"
-    # Short Hindi/Hinglish chunks are frequently misdetected as English. Hindi
-    # decoding still preserves embedded English technical terms.
-    language_mode: str = "hi"
+    language_mode: str = "en"
     translation_enabled: bool = False
     translation_model: str = "Helsinki-NLP/opus-mt-hi-en"
     debug_log_interval: float = 1.0

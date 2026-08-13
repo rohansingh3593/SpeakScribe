@@ -161,9 +161,11 @@ def test_capture_source_matches_legacy_speaker_loopback_and_physical_microphone(
         microphone, "microphone:Microphone", 1)
 
 
-def test_default_capture_settings_use_physical_microphone_for_spoken_transcription():
+def test_default_capture_settings_use_system_audio_for_english_transcription():
     config = AppConfig()
-    assert config.capture_source == "microphone"
+    assert config.capture_source == "loopback"
+    assert config.language_mode == "en"
+    assert config.script_mode == "original"
     assert config.capture_sample_rate == 16_000
     assert config.capture_warmup_blocks == 3
     assert config.capture_warmup_ms == 100
