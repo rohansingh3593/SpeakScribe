@@ -305,11 +305,17 @@ class ASRWorker:
         self.model_provider = model_provider
         self.recognition_state = recognition_state
         self.history: deque[str] = deque(maxlen=config.context_sentences)
+        self.model_ready = False
+        self.inference_started = 0
+        self.inference_completed = 0
+        self.results_accepted = 0
+        self.signals_emitted = 0
 
     def run(self) -> None:
         try:
             self.signals.status_changed.emit("Loading speech model…")
             engine = self.model_provider.get(self.config)
+            self.model_ready = True
             source_label = ("Microphone" if self.config.capture_source == "microphone"
                             else "System audio")
             self.signals.status_changed.emit(f"🎤 Listening via {source_label}")
@@ -330,8 +336,15 @@ class ASRWorker:
                                 "utterance=%s", job.language_generation, job.utterance_id)
                     continue
                 started = time.monotonic()
+                self.inference_started += 1
+                LOGGER.info("[PIPELINE] FAST worker accepted job; Whisper inference starts | "
+                            "utterance=%s generation=%s", job.utterance_id,
+                            job.language_generation)
                 text, language, metadata = _unpack_transcription(
                     engine.transcribe(job, " ".join(self.history)))
+                self.inference_completed += 1
+                LOGGER.info("[PIPELINE] Whisper inference returns | utterance=%s generation=%s",
+                            job.utterance_id, job.language_generation)
                 stale = (self.recognition_state is not None and
                          not self.recognition_state.is_current(job.language_generation))
                 if stale:
@@ -355,6 +368,7 @@ class ASRWorker:
                             "ASR returned no text | utterance=%s audio=%.2fs inference=%.2fs",
                             job.utterance_id, duration, elapsed)
                     continue
+                self.results_accepted += 1
                 if not stale:
                     self.signals.language_changed.emit(language)
                 if job.final:
@@ -362,10 +376,12 @@ class ASRWorker:
                         self.history.append(text)
                         self.signals.final_text.emit(text)
                         self.signals.partial_text.emit("")
+                        self.signals_emitted += 2
                     LOGGER.info("Transcription ready | utterance=%s language=%s text=%r",
                                 job.utterance_id, language, text)
                 else:
                     self.signals.partial_text.emit(text)
+                    self.signals_emitted += 1
                     LOGGER.info("Live transcription | utterance=%s language=%s text=%r",
                                 job.utterance_id, language, text)
         except Exception as exc:
