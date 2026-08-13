@@ -29,6 +29,7 @@ from app.utils.logger import (
     configure_logging, emit_status, get_logger, get_output_path, log_exception, log_print,
 )
 from app.processing.translation import TranslationWorker
+from app.processing.live_transcript import LiveTranscriptModel
 from app.processing.text_processing import (
     best_refinement_candidate, comparison_agreement_percentages, comparison_diff_html,
     compose_live_transcript, descending_segment_row, format_processing_duration,
@@ -252,6 +253,10 @@ class MainWindow(QWidget):
         self.controller = SpeechController(self.signals)
         self.final_history: list[str] = []
         self.current_partial = ""
+        self.live_transcript = LiveTranscriptModel(AppConfig().paragraph_pause_threshold)
+        self._legacy_utterance_id = 0
+        self.auto_scroll_enabled = True
+        self._programmatic_scroll = False
         self.mode_states = {mode.value: {"finals": [], "partial": "", "metrics": {}}
                             for mode in PerformanceMode}
         self.selected_mode = PerformanceMode.BALANCED
@@ -377,6 +382,27 @@ class MainWindow(QWidget):
         button_layout.addWidget(self.btn_copy_transcript)
         button_layout.addStretch()
 
+        transcript_panel = QWidget()
+        transcript_layout = QVBoxLayout(transcript_panel)
+        transcript_layout.setContentsMargins(0, 0, 0, 0)
+        transcript_layout.setSpacing(4)
+        processing_title = QLabel("PROCESSING — LIVE UPDATE")
+        processing_title.setStyleSheet("color:#5aa9ff;font-weight:bold;padding:5px")
+        self.processing_output = QPlainTextEdit()
+        self.processing_output.setReadOnly(True)
+        self.processing_output.setMaximumHeight(125)
+        self.processing_output.setPlaceholderText("Listening for live speech…")
+        self.processing_output.setStyleSheet(
+            "color:#e8f2ff;background:#172231;border:1px solid #29466d;padding:7px")
+        final_header = QHBoxLayout()
+        final_title = QLabel("FINAL TRANSCRIPT")
+        final_title.setStyleSheet("color:#54d66b;font-weight:bold;padding:5px")
+        self.jump_to_latest = QPushButton("↓ Jump to latest")
+        self.jump_to_latest.hide()
+        self.jump_to_latest.clicked.connect(self._jump_to_latest)
+        final_header.addWidget(final_title)
+        final_header.addStretch()
+        final_header.addWidget(self.jump_to_latest)
         self.record_output = QPlainTextEdit()
         self.transcription = self.record_output  # compatibility for existing callbacks
         font = QFont()
@@ -402,8 +428,15 @@ class MainWindow(QWidget):
         self.record_output.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
+        transcript_layout.addWidget(processing_title)
+        transcript_layout.addWidget(self.processing_output)
+        transcript_layout.addLayout(final_header)
+        transcript_layout.addWidget(self.record_output, stretch=1)
+        self.record_output.verticalScrollBar().valueChanged.connect(
+            self._final_scroll_changed)
+
         top_row.addLayout(button_layout, stretch=1)
-        top_row.addWidget(self.record_output, stretch=5)
+        top_row.addWidget(transcript_panel, stretch=5)
         outer_layout.addLayout(top_row)
 
         self.comparison_panel = QWidget()
@@ -461,7 +494,6 @@ class MainWindow(QWidget):
         comparison_layout.addLayout(decision)
         top_row.addWidget(self.comparison_panel, stretch=5)
         self.comparison_panel.hide()
-        self.record_output.hide()
         self.select_mode(PerformanceMode.BALANCED, persist=False)
 
         self.segment_table = QTableWidget(0, 1)
@@ -476,6 +508,7 @@ class MainWindow(QWidget):
         self.segment_rows: dict[int, int] = {}
         self.segment_states: dict[int, dict] = {}
         top_row.addWidget(self.segment_table, stretch=5)
+        self.segment_table.hide()  # retained as a diagnostic model, not transcript UI
 
         self.record_move_bar = QWidget()
         move_layout = QHBoxLayout(self.record_move_bar)
@@ -516,7 +549,8 @@ class MainWindow(QWidget):
         script = self.script.currentText().lower()
         script = "latin" if script == "latin / roman" else script
         self.current_partial = ""
-        self._render_live_text()
+        self.live_transcript.clear_processing()
+        self._render_processing()
         self.controller.switch_recognition_language(
             modes[self.language_mode.currentText()], script)
 
@@ -552,7 +586,6 @@ class MainWindow(QWidget):
 
     def _sync_display_mode(self, *_args) -> None:
         self.comparison_panel.hide()
-        self.record_output.hide()
         self.performance_label.setText("FAST live transcription — refinements deferred")
 
     @property
@@ -597,10 +630,8 @@ class MainWindow(QWidget):
         QApplication.clipboard().setText(self.full_script())
 
     def full_script(self) -> str:
-        """Return the promoted, already de-overlapped segments chronologically."""
-        return " ".join(self.segment_states[segment_id].get("display_text", "")
-                        for segment_id in sorted(self.segment_states)
-                        if self.segment_states[segment_id].get("display_text"))
+        """Return clean finalized paragraphs, excluding live/diagnostic text."""
+        return self.live_transcript.clean_text()
 
     def use_selected_output(self) -> None:
         text = self.selected_transcript
@@ -687,6 +718,19 @@ class MainWindow(QWidget):
             mode_state["latency"] = metrics.get("first_partial_latency")
             mode_state["processing_started"] = None
         self._render_segment(segment_id)
+        if final:
+            changed = self.live_transcript.commit(
+                segment_id, state.get("display_text") or text,
+                language=metrics.get("language", ""),
+                start_time=metrics.get("start_time", 0.0),
+                end_time=metrics.get("end_time", 0.0),
+                refinement_level=mode_name)
+            self._render_processing()
+            if changed:
+                self._render_final()
+        else:
+            self.live_transcript.update_partial(text, segment_id)
+            self._render_processing(mode_name, metrics)
         render_finished = time.monotonic()
         metrics["ui_render"] = render_finished - slot_entered
         if metrics.get("language_switch_requested_at"):
@@ -944,38 +988,82 @@ class MainWindow(QWidget):
         self._sync_display_mode()
         self.record_timer.stop()
         self._update_record_timer()
+        self.live_transcript.clear_processing()
+        self.current_partial = ""
+        self._render_processing()
 
     def add_final(self, text: str) -> None:
         started = time.monotonic()
         log_print(f"[GUI] final signal received chars={len(text)} text={text!r}")
         self.final_history.append(text)
         self.current_partial = ""
-        self._render_live_text()
+        self._legacy_utterance_id += 1
+        self.live_transcript.commit(self._legacy_utterance_id, text)
+        self.live_transcript.clear_processing()
+        self._render_processing()
+        self._render_final()
         log_print(f"[GUI] final rendered in {(time.monotonic() - started) * 1000:.1f}ms")
         self.controller.translate(text)  # display has already happened
 
     def add_stale_final(self, text: str) -> None:
         """Preserve required old speech without clearing the new live partial."""
         self.final_history.append(text)
-        self._render_live_text()
+        self._legacy_utterance_id += 1
+        self.live_transcript.commit(self._legacy_utterance_id, text)
+        self._render_final()
         self.controller.translate(text)
 
     def show_partial(self, text: str) -> None:
         started = time.monotonic()
         log_print(f"[GUI] partial signal received chars={len(text)} text={text!r}")
         self.current_partial = text
-        self._render_live_text()
+        self.live_transcript.update_partial(text)
+        self._render_processing()
         log_print(f"[GUI] partial rendered in {(time.monotonic() - started) * 1000:.1f}ms")
 
     def _render_live_text(self) -> None:
-        """Replace the active partial while retaining only stable final text."""
-        self.transcription.setPlainText(
-            compose_live_transcript(self.final_history, self.current_partial)
-        )
-        cursor = self.transcription.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-        self.transcription.setTextCursor(cursor)
-        self.transcription.ensureCursorVisible()
+        """Compatibility renderer for callers predating the split display."""
+        self._render_processing()
+        self._render_final()
+
+    def _render_processing(self, mode: str = "fast", metrics: dict | None = None) -> None:
+        """Update only the inexpensive, single live candidate widget."""
+        text = self.live_transcript.processing_text
+        self.processing_output.setPlainText(f"● {text}" if text else "")
+        confidence = (metrics or {}).get("confidence")
+        if text:
+            suffix = f" • confidence {confidence:.2f}" if confidence is not None else ""
+            self.processing_output.setToolTip(f"{mode.upper()}{suffix} • updating…")
+        else:
+            self.processing_output.setToolTip("")
+
+    def _render_final(self) -> None:
+        """Render only after a final is added/refined and respect reader position."""
+        scrollbar = self.record_output.verticalScrollBar()
+        old_value = scrollbar.value()
+        self._programmatic_scroll = True
+        self.record_output.setPlainText(self.live_transcript.clean_text())
+        if self.auto_scroll_enabled:
+            scrollbar.setValue(scrollbar.maximum())
+        else:
+            scrollbar.setValue(min(old_value, scrollbar.maximum()))
+        self._programmatic_scroll = False
+
+    def _final_scroll_changed(self, value: int) -> None:
+        if self._programmatic_scroll:
+            return
+        scrollbar = self.record_output.verticalScrollBar()
+        near_bottom = scrollbar.maximum() - value <= 24
+        self.auto_scroll_enabled = near_bottom
+        self.jump_to_latest.setVisible(not near_bottom)
+
+    def _jump_to_latest(self) -> None:
+        self.auto_scroll_enabled = True
+        self._programmatic_scroll = True
+        self.record_output.verticalScrollBar().setValue(
+            self.record_output.verticalScrollBar().maximum())
+        self._programmatic_scroll = False
+        self.jump_to_latest.hide()
 
     def show_translation(self, text: str) -> None:
         self.translation.setPlainText(f"Translation: {text}")
@@ -987,6 +1075,8 @@ class MainWindow(QWidget):
     def clear_text(self) -> None:
         self.final_history.clear()
         self.current_partial = ""
+        self.live_transcript.clear()
+        self.processing_output.clear()
         self.transcription.clear()
         self.translation.clear()
         self.segment_table.setRowCount(0)
@@ -997,7 +1087,7 @@ class MainWindow(QWidget):
             self.mode_outputs[mode].clear()
             self.mode_metrics[mode].setText(
                 "Relative accuracy n/a | First n/a | Final n/a")
-            self.show_mode_status(mode.value, "Waiting")
+            self.mode_statuses[mode].setText("● Waiting")
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
         if not self.ever_started:

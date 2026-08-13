@@ -66,6 +66,8 @@ DEFAULT_VOCABULARY = (
 
 @dataclass
 class AppConfig:
+    # ASR pauses shorter than this remain in the same readable paragraph.
+    paragraph_pause_threshold: float = 2.0
     sample_rate: int = 16_000
     # Spoken transcription should use the physical microphone by default.
     # Speaker loopback remains available for transcribing system playback.
