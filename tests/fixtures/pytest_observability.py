@@ -227,6 +227,7 @@ class PytestObserver:
         evaluation = record.evaluation
         flags = set(evaluation.get("quality_flags", []))
         if "TIMEOUT" in flags: return "TIMEOUT"
+        if "SCRIPT_MISMATCH" in flags: return "SCRIPT_MISMATCH"
         if "WRONG_LANGUAGE" in flags: return "LANGUAGE_DETECTION"
         if evaluation.get("technical_term_problems"): return "TECHNICAL_TERMS"
         if "NO_TRANSCRIPTION" in flags or evaluation.get("status") == "FAIL": return "ASR_ACCURACY"

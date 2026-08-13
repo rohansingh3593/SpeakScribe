@@ -17,6 +17,8 @@ import sys
 import time
 import wave
 
+from app.processing.text_processing import script_metadata
+
 from evaluation.suite_logging import (
     SLOW_TEST_WARNING_SECONDS, ProgressTracker, aggregate_results,
     configure_logging, finalize_latest, format_duration as suite_duration, log,
@@ -89,6 +91,12 @@ class EvaluationResult:
     quality_flags: list[str]
     cpu_percent: float
     memory_mb: float
+    expected_script: str = "original"
+    detected_script: str = "none"
+    script_match: bool = True
+    arabic_character_ratio: float = 0.0
+    devanagari_character_ratio: float = 0.0
+    latin_character_ratio: float = 0.0
 
 
 def normalize_transcript(text: str) -> str:
@@ -198,6 +206,9 @@ def load_wav(path: Path, target_rate: int):
 
 
 def _diagnosis(result: EvaluationResult) -> str:
+    if not result.script_match:
+        return (f"SCRIPT_MISMATCH: expected {result.expected_script}, detected "
+                f"{result.detected_script}.")
     if result.detected_language.casefold() != result.language.casefold() and result.language != "Hinglish":
         return "Language detection or language-mode selection mismatch."
     if result.technical_term_problems:
@@ -211,6 +222,10 @@ def _diagnosis(result: EvaluationResult) -> str:
 
 def _root_cause(case: dict, result: EvaluationResult) -> tuple[str, str]:
     features = set(case.get("features", []))
+    if "SCRIPT_MISMATCH" in result.quality_flags:
+        return ("SCRIPT_MISMATCH",
+                "Inspect raw Whisper text and script-stage diagnostics; do not promote the "
+                "candidate until a valid Hindi/Hinglish refinement arrives.")
     if "NO_TRANSCRIPTION" in result.quality_flags:
         return ("No transcription",
                 "Inspect rejected segments and compare prompted with prompt-free fallback.")
@@ -262,7 +277,8 @@ def evaluate_case(case: dict, root: Path, provider, performance_mode=None) -> Ev
             partial_job = ASRJob(audio=audio[:endpoint], final=False, utterance_id=1,
                                  captured_at=time.monotonic(),
                                  speech_seconds=endpoint / config.sample_rate)
-            partial, _ = provider.get(config).transcribe(partial_job, "")
+            partial_result = provider.get(config).transcribe(partial_job, "")
+            partial = partial_result[0]
             if partial:
                 partials.append(partial)
                 if first_partial_latency is None:
@@ -270,7 +286,8 @@ def evaluate_case(case: dict, root: Path, provider, performance_mode=None) -> Ev
     job = ASRJob(audio=audio, final=True, utterance_id=1, captured_at=time.monotonic(),
                  speech_seconds=len(audio) / config.sample_rate)
     final_started = time.monotonic()
-    actual, detected = provider.get(config).transcribe(job, "")
+    final_result = provider.get(config).transcribe(job, "")
+    actual, detected = final_result[:2]
     inference = time.monotonic() - final_started
     total_processing = time.monotonic() - started
     duration = len(audio) / config.sample_rate
@@ -288,6 +305,13 @@ def evaluate_case(case: dict, root: Path, provider, performance_mode=None) -> Ev
     actual_counts = Counter(normalize_transcript(actual).split())
     duplicated = sorted(word for word, count in actual_counts.items()
                         if count > max(1, expected_counts[word]) + 1)
+    expected_script = ("devanagari" if case["language"] == "Hindi" else
+                       "devanagari-or-latin" if case["language"] == "Hinglish" else "latin")
+    scripts = script_metadata(actual, "original", "hi" if case["language"] in {
+        "Hindi", "Hinglish"} else "en")
+    script_match = (scripts["script_valid"] and
+                    (expected_script != "devanagari" or
+                     scripts["devanagari_character_ratio"] > 0))
     result = EvaluationResult(
         case_id=case["id"], audio=case["audio"], language=case["language"],
         audio_source=case.get("audio_source", "human"),
@@ -315,9 +339,16 @@ def evaluate_case(case: dict, root: Path, provider, performance_mode=None) -> Ev
         best_retry_similarity=None, best_retry_status=None, quality_flags=[],
         cpu_percent=round(process.cpu_percent(None), 2),
         memory_mb=round(process.memory_info().rss / 1024 ** 2, 2),
+        expected_script=expected_script,
+        detected_script=str(scripts["detected_script"]), script_match=script_match,
+        arabic_character_ratio=round(float(scripts["arabic_character_ratio"]), 4),
+        devanagari_character_ratio=round(float(scripts["devanagari_character_ratio"]), 4),
+        latin_character_ratio=round(float(scripts["latin_character_ratio"]), 4),
     )
     if not actual.strip():
         result.quality_flags.append("NO_TRANSCRIPTION")
+    if not result.script_match:
+        result.quality_flags.append("SCRIPT_MISMATCH")
     if detected.casefold() != case["language"].casefold() and case["language"] != "Hinglish":
         result.quality_flags.append("WRONG_LANGUAGE")
     if result.final_transcript_latency > 2.0:
@@ -489,10 +520,14 @@ def render_markdown(results: list[EvaluationResult], missing: list[str],
                              f"latency {metrics['latency_delta']:+.2f}s, "
                              f"memory {metrics['memory_delta']:+.1f} MB, "
                              f"regression={'YES' if metrics['regression'] else 'no'})")
-    lines += ["", "| Test | Language | Source | Similarity | WER | Attempts | Best retry | Retry Δ | Flags | Inference | RTF | CPU | RAM | Status |",
-              "|---|---|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---|"]
+    lines += ["", "| Test | Language | Expected script | Detected script | Script match | Arabic ratio | Devanagari ratio | Latin ratio | Source | Similarity | WER | Attempts | Best retry | Retry Δ | Flags | Inference | RTF | CPU | RAM | Status |",
+              "|---|---|---|---|---|---:|---:|---:|---|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---|"]
     for item in results:
-        lines.append(f"| {item.audio} | {item.language} | {item.audio_source.title()} | "
+        lines.append(f"| {item.audio} | {item.language} | {item.expected_script} | "
+                     f"{item.detected_script} | {'PASS' if item.script_match else 'FAIL'} | "
+                     f"{item.arabic_character_ratio:.3f} | "
+                     f"{item.devanagari_character_ratio:.3f} | "
+                     f"{item.latin_character_ratio:.3f} | {item.audio_source.title()} | "
                      f"{item.similarity:.1f}% | "
                      f"{item.wer:.3f} | {item.attempts} | "
                      f"{item.best_retry_similarity if item.best_retry_similarity is not None else '-'} | "

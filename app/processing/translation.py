@@ -34,6 +34,7 @@ class TranslationWorker:
                 inputs = self.tokenizer([text], return_tensors="pt", padding=True)
                 output = self.model.generate(**inputs)
                 translated = self.tokenizer.batch_decode(output, skip_special_tokens=True)[0]
+                LOGGER.debug("[TRANSLATION] input=%r after_translation=%r", text, translated)
                 self.signals.translation_ready.emit(translated)
         except Exception as exc:
             LOGGER.error("Translation failed: %s", exc, exc_info=True)
