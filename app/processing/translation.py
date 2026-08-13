@@ -38,6 +38,7 @@ class TranslationWorker:
                 output = self.model.generate(**inputs)
                 inferred = time.monotonic()
                 translated = self.tokenizer.batch_decode(output, skip_special_tokens=True)[0]
+                LOGGER.debug("[TRANSLATION] input=%r after_translation=%r", text, translated)
                 self.signals.translation_ready.emit(translated)
                 LOGGER.debug(
                     "[LATENCY] translation tokenize=%.3fs inference=%.3fs "

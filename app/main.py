@@ -111,7 +111,7 @@ class SpeechController:
         for thread in self.threads:
             thread.start()
         log_print(
-            f"Listening started; log={get_output_path()} threads="
+            f"Listening started; pipeline=fast-live-v2 log={get_output_path()} threads="
             f"{[thread.name for thread in self.threads]} "
             f"capture_rate={config.capture_sample_rate} asr_rate={config.sample_rate} "
             f"frame_ms={config.frame_ms} speech_threshold={config.speech_threshold} "
@@ -225,7 +225,7 @@ class MainWindow(QWidget):
         self.display_mode.setToolTip(
             "Progressive replaces one live output as Fast, Balanced, then Accurate complete")
         self.script = QComboBox()
-        self.script.addItems(["Original", "Latin", "Devanagari"])
+        self.script.addItems(["Original", "Devanagari", "Latin / Roman"])
         self.script.setMinimumWidth(125)
         self.language_mode = QComboBox()
         self.language_mode.addItems(["Hindi / Hinglish", "Auto", "English"])
@@ -480,7 +480,7 @@ class MainWindow(QWidget):
     def _sync_display_mode(self, *_args) -> None:
         self.comparison_panel.hide()
         self.record_output.hide()
-        self.performance_label.setText("FAST + BALANCED + ACCURATE — shared audio segments")
+        self.performance_label.setText("FAST live transcription — refinements deferred")
 
     @property
     def selected_transcript(self) -> str:
@@ -554,7 +554,9 @@ class MainWindow(QWidget):
             self.segment_rows[segment_id] = row
             state = {"start": 0.0, "end": 0.0, "display_text": "",
                      "display_source": None, "modes": {
-                mode.value: {"raw": None, "partial": "", "status": "WAITING",
+                mode.value: {"raw": None, "partial": "",
+                             "status": ("WAITING" if mode is PerformanceMode.FAST
+                                        else "DEFERRED"),
                              "latency": None, "processing_started": None}
                 for mode in PerformanceMode}}
             self.segment_states[segment_id] = state
@@ -583,16 +585,32 @@ class MainWindow(QWidget):
         if emitted_at is not None:
             metrics["result_coordination"] = max(0.0, slot_entered - emitted_at)
         state = self._ensure_segment(segment_id, metrics)
+        if metrics.get("duplicate"):
+            self._remove_segment(segment_id)
+            LOGGER.info("Suppressed duplicate live segment | segment=%s mode=%s",
+                        segment_id, mode_name)
+            return
         mode_state = state["modes"][mode_name]
+        mode_state["metadata"] = metrics
+        script_valid = metrics.get("script_valid", True)
         if final:
-            mode_state["raw"] = text
-            mode_state["partial"] = ""
-            mode_state["status"] = "FINAL"
+            if script_valid:
+                mode_state["raw"] = text
+                mode_state["partial"] = ""
+                mode_state["status"] = "FINAL"
+            else:
+                # Do not erase a valid live hypothesis merely because the final
+                # refinement came back in an invalid script. Keep displaying
+                # that hypothesis while the other profiles get their chance.
+                mode_state["status"] = "SCRIPT MISMATCH"
             mode_state["latency"] = metrics.get("final_latency")
             mode_state["processing_started"] = None
         else:
-            mode_state["partial"] = text
-            mode_state["status"] = "PARTIAL"
+            if script_valid:
+                mode_state["partial"] = text
+                mode_state["status"] = "PARTIAL"
+            else:
+                mode_state["status"] = "SCRIPT MISMATCH"
             mode_state["latency"] = metrics.get("first_partial_latency")
             mode_state["processing_started"] = None
         self._render_segment(segment_id)
@@ -601,6 +619,12 @@ class MainWindow(QWidget):
         candidate_at = metrics.get("candidate_speech_at")
         if candidate_at:
             metrics["total_visible_latency"] = render_finished - candidate_at
+        LOGGER.debug(
+            "[FINAL DISPLAY] segment=%s mode=%s raw=%r processed=%r displayed=%r "
+            "detected_language=%s detected_script=%s requested_script=%s script_valid=%s",
+            segment_id, mode_name, metrics.get("raw_text"), metrics.get("processed_text"),
+            state.get("display_text"), metrics.get("detected_language"),
+            metrics.get("detected_script"), metrics.get("requested_script"), script_valid)
         LOGGER.debug(
             "[LATENCY] segment=%s mode=%s final=%s vad=%.3fs buffer=%.3fs "
             "queue=%.3fs preprocess=%.3fs inference=%.3fs text=%.3fs "
@@ -615,6 +639,17 @@ class MainWindow(QWidget):
             metrics.get("result_coordination") or 0.0,
             metrics.get("ui_render") or 0.0,
             metrics.get("total_visible_latency") or metrics.get("result_latency") or 0.0)
+
+    def _remove_segment(self, segment_id: int) -> None:
+        """Remove a rejected live row and keep the stable row index map valid."""
+        row = self.segment_rows.pop(segment_id, None)
+        self.segment_states.pop(segment_id, None)
+        if row is None:
+            return
+        self.segment_table.removeRow(row)
+        for existing_id, existing_row in tuple(self.segment_rows.items()):
+            if existing_row > row:
+                self.segment_rows[existing_id] = existing_row - 1
 
     def _render_segment(self, segment_id: int, refresh_successor: bool = True) -> None:
         state = self.segment_states[segment_id]
@@ -645,9 +680,9 @@ class MainWindow(QWidget):
                 elapsed = now - data["processing_started"]
                 if elapsed >= self.live_result_deadline:
                     timing.append(
-                        f'{mode.value.upper()} exceeded '
+                        f'{mode.value.upper()} is still processing after '
                         f'{format_processing_duration(self.live_result_deadline)}; '
-                        'late update will be ignored')
+                        'result will appear when ready')
                 else:
                     timing.append(
                         f'{mode.value.upper()} processing '
@@ -658,9 +693,11 @@ class MainWindow(QWidget):
         timing_text = " · ".join(timing) or "waiting for first result"
         if not display_text:
             statuses = {item["status"] for item in state["modes"].values()}
-            body = ("<i>No result arrived within the 20-second live-update limit.</i>"
-                    if statuses <= {"FINAL", "ERROR", "EXPIRED"} else
-                    f"<i>Processing speech…</i><br><small>{timing_text}</small>")
+            terminal = {"FINAL", "ERROR", "SCRIPT MISMATCH", "DEFERRED"}
+            if statuses <= terminal:
+                body = "<i>No speech was recognized in this segment.</i>"
+            else:
+                body = f"<i>Processing speech…</i><br><small>{timing_text}</small>"
         else:
             badge = source.value.upper()
             body = (f'<div style="font-size:15px">{escape(display_text)}</div>'
@@ -734,12 +771,17 @@ class MainWindow(QWidget):
             self.mode_outputs[mode].setHtml("".join(parts))
 
     def show_mode_status(self, segment_id: int, mode_name: str, status: str) -> None:
+        if status.upper() in {"DUPLICATE", "NO SPEECH"}:
+            self._remove_segment(segment_id)
+            return
         state = self._ensure_segment(segment_id)
         mode_state = state["modes"][mode_name]
         mode_state["status"] = status.upper()
         if status.upper() == "PROCESSING" and mode_state["processing_started"] is None:
             mode_state["processing_started"] = time.monotonic()
-        elif status.upper() in {"FINAL", "ERROR", "EXPIRED", "LISTENING", "PARTIAL"}:
+        elif status.upper() in {
+                "FINAL", "ERROR", "EXPIRED", "LISTENING", "PARTIAL", "SCRIPT MISMATCH",
+                "DUPLICATE"}:
             mode_state["processing_started"] = None
         if status.upper() == "LISTENING":
             mode_state["partial"] = ""
@@ -755,15 +797,18 @@ class MainWindow(QWidget):
         self.ever_started = True
         run_all = True
         compare_all = True
-        # Fast cadence publishes snapshots soon enough for every comparison row;
-        # each decoder still uses its own profile on the exact same ASRJob audio.
+        # Live capture must not queue minutes of immutable audio while Whisper
+        # runs slower than real time. FAST uses newest-value scheduling; profile
+        # comparisons belong to the prerecorded evaluation path.
         mode = (PerformanceMode.FAST if run_all else
                 PerformanceMode(self.performance.currentText().lower()))
         recognition_modes = {
             "Hindi / Hinglish": "hi", "Auto": "auto", "English": "en",
         }
+        selected_script = self.script.currentText().lower()
         config = AppConfig(performance_mode=mode,
-                           script_mode=self.script.currentText().lower(),
+                           script_mode=("latin" if selected_script == "latin / roman"
+                                        else selected_script),
                            language_mode=recognition_modes[self.language_mode.currentText()],
                            capture_source=("loopback" if self.capture_source.currentText() ==
                                            "System audio (legacy)" else "microphone"),
@@ -771,11 +816,11 @@ class MainWindow(QWidget):
                            # CPU comparison can finalize slower than capture.
                            # Never let ASR backpressure stop VAD from draining
                            # the one shared capture stream.
-                           asr_keep_latest_final=False,
-                           max_audio_queue=400 if run_all else 100,
-                           max_asr_queue=8,
-                           max_utterance_seconds=4.0 if run_all else 15.0)
-        self.performance_label.setText("FAST + BALANCED + ACCURATE — shared audio segments")
+                           asr_keep_latest_final=True,
+                           max_audio_queue=100,
+                           max_asr_queue=1,
+                           max_utterance_seconds=15.0)
+        self.performance_label.setText("FAST live transcription — refinements deferred")
         self.status.setText("Starting…")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)

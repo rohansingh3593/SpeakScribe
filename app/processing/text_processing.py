@@ -16,6 +16,60 @@ HINGLISH_WORDS = {
     "nahi", "pe", "raha", "rahi", "se", "task", "uske", "wala", "yeh",
 }
 
+SCRIPT_RANGES = {
+    "devanagari": re.compile(r"[\u0900-\u097f\ua8e0-\ua8ff]"),
+    "arabic": re.compile(r"[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]"),
+    "latin": re.compile(r"[A-Za-z]"),
+}
+
+
+def script_metadata(text: str, requested_script: str = "original",
+                    language_mode: str = "auto") -> dict[str, str | float | bool]:
+    """Classify writing systems and validate Hindi output without rewriting it."""
+    counts = {name: len(pattern.findall(text)) for name, pattern in SCRIPT_RANGES.items()}
+    total = sum(counts.values())
+    ratios = {name: count / total if total else 0.0 for name, count in counts.items()}
+    if counts["arabic"] and counts["devanagari"]:
+        detected = "mixed-devanagari-arabic"
+    elif counts["arabic"]:
+        detected = "arabic"
+    elif counts["devanagari"] and counts["latin"]:
+        detected = "mixed-devanagari-latin"
+    else:
+        detected = max(counts, key=counts.get) if total else "none"
+    hindi = language_mode == "hi"
+    requested = requested_script.lower().replace(" / roman", "")
+    valid = True
+    if hindi and counts["arabic"]:
+        # Even one Urdu suffix inside otherwise-Devanagari Hindi (for example,
+        # ``महिलाوں``) makes the displayed word corrupt. Arabic and Devanagari
+        # are not character-for-character equivalents, so retain the evidence
+        # and ask ASR for a clean recovery instead of guessing a replacement.
+        valid = False
+    if hindi and requested == "devanagari" and counts["latin"] and not counts["devanagari"]:
+        valid = False
+    if hindi and requested == "latin" and counts["devanagari"]:
+        valid = False
+    if hindi and requested == "original" and detected == "latin":
+        # Hindi-pinned Whisper sometimes hallucinates fluent English from noisy
+        # loopback audio. Original may preserve genuine Roman Hinglish, but a
+        # Latin-only candidate still needs recognizable Hindi function words.
+        words = re.findall(r"[A-Za-z']+", text.casefold())
+        hinglish_words = sum(word in HINGLISH_WORDS for word in words)
+        valid = hinglish_words >= 2
+    expected = requested if requested in {"devanagari", "latin"} else (
+        "devanagari-or-latin" if hindi else "original")
+    return {
+        "expected_script": expected,
+        "detected_script": detected,
+        "script_match": valid,
+        "script_valid": valid,
+        "requested_script": requested_script,
+        "arabic_character_ratio": ratios["arabic"],
+        "devanagari_character_ratio": ratios["devanagari"],
+        "latin_character_ratio": ratios["latin"],
+    }
+
 
 def format_recording_time(seconds: float) -> str:
     """Format a monotonic recording duration for the compact UI timer."""
@@ -161,7 +215,7 @@ def clean_text(text: str, final: bool = False) -> str:
     text = re.sub(r"\bpr\b", "PR", text, flags=re.IGNORECASE)
     if text:
         text = text[0].upper() + text[1:]
-    if final and text and text[-1] not in ".!?।":
+    if final and text and text[-1] not in ".!?।؟":
         text += "।" if re.search(r"[\u0900-\u097f]", text) else "."
     return text
 
