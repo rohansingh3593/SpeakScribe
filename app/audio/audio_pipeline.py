@@ -141,6 +141,8 @@ class AudioCaptureWorker:
                  on_error):
         self.config, self.output, self.stop_event = config, output, stop_event
         self.on_error = on_error
+        self.frames_received = 0
+        self.audio_level = 0.0
 
     def run(self) -> None:
         try:
@@ -200,6 +202,9 @@ class AudioCaptureWorker:
                     resampled = resample_audio_block(
                         raw_frame, self.config.capture_sample_rate,
                         self.config.sample_rate)
+                    stats = audio_statistics(resampled)
+                    self.frames_received += len(resampled)
+                    self.audio_level = stats["rms"]
                     frame_samples = self.config.frame_samples
                     frames = [resampled[index:index + frame_samples]
                               for index in range(0, len(resampled), frame_samples)
@@ -258,8 +263,17 @@ class SpeechBufferWorker:
         self.recognition_state = recognition_state
         self.detector = EnergySpeechDetector(config)
         self.utterance_id = 0
+        self.speech_detected = False
+        self.speech_detected_at = 0.0
+        self.buffer_ms = 0.0
+        self.segments_generated = 0
+        self.jobs_submitted = 0
 
     def _submit(self, job: ASRJob) -> None:
+        self.jobs_submitted += 1
+        self.segments_generated += 1
+        LOGGER.info("[PIPELINE] FAST job submitted | utterance=%s generation=%s final=%s",
+                    job.utterance_id, job.language_generation, job.final)
         LOGGER.debug(
             f"[QUEUE] submit final={job.final} utterance={job.utterance_id} "
             f"audio={len(job.audio) / self.config.sample_rate:.2f}s "
@@ -367,6 +381,8 @@ class SpeechBufferWorker:
             active, rms = self.detector.classify(frame)
             stream_seconds += frame_seconds
             now = time.monotonic()
+            self.speech_detected = active
+            self.buffer_ms = len(speech) * frame_seconds * 1000
             if not speech and self.detector.start_frames == 1:
                 candidate_speech_at = now
             diagnostic_rms.append(rms)
@@ -391,6 +407,7 @@ class SpeechBufferWorker:
             if not speech:
                 pre.append(frame)
                 if active:
+                    self.speech_detected_at = now
                     self.utterance_id += 1
                     utterance_start = max(0.0, stream_seconds - len(pre) * frame_seconds)
                     speech.extend(pre)
@@ -455,6 +472,7 @@ class SpeechBufferWorker:
                         f"usable={usable:.2f}s minimum={self.config.min_speech_duration:.2f}s"
                     )
                 speech.clear()
+                self.buffer_ms = 0.0
                 voiced_duration = 0.0
                 silence = 0.0
                 self.detector.reset()

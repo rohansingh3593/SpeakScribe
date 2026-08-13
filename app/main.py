@@ -69,6 +69,8 @@ class SpeechController:
         self.asr_queue: Queue | None = None
         self.retired_threads: list[Thread] = []
         self.last_stop_metrics: dict[str, float | int] = {}
+        self.session_id = 0
+        self._heartbeat_stop = Event()
 
     def preload_model(self) -> None:
         """Warm Whisper after the window opens instead of after speech begins."""
@@ -95,7 +97,9 @@ class SpeechController:
             return
         self.running = True
         self.state = "LISTENING"
+        self.session_id += 1
         self.stop_event = Event()
+        self._heartbeat_stop = Event()
         audio_queue = Queue(maxsize=config.max_audio_queue)
         asr_queue = Queue(maxsize=config.max_asr_queue)
         self.asr_queue = asr_queue
@@ -126,6 +130,11 @@ class SpeechController:
                                        daemon=True))
         for thread in self.threads:
             thread.start()
+        LOGGER.info("[PIPELINE] START clicked; session=%s generation=%s", self.session_id,
+                    session.generation)
+        LOGGER.info("[PIPELINE] session created; capture_enabled=%s stop_event=%s",
+                    self.running, self.stop_event.is_set())
+        self._start_diagnostic_heartbeat(config, capture, buffer, asr, session.generation)
         log_print(
             f"Listening started; pipeline=fast-live-v2 log={get_output_path()} threads="
             f"{[thread.name for thread in self.threads]} "
@@ -138,6 +147,45 @@ class SpeechController:
         )
         LOGGER.info("[SESSION] listening generation=%s language=%s",
                     session.generation, session.language)
+
+    def _start_diagnostic_heartbeat(self, config, capture, buffer, asr,
+                                    generation: int) -> None:
+        """Report actual pipeline health; the UI timer alone is not a health check."""
+        heartbeat_stop = self._heartbeat_stop
+        session_id = self.session_id
+        threads = tuple(self.threads)
+
+        def heartbeat() -> None:
+            while not heartbeat_stop.wait(config.debug_log_interval):
+                if not self.running or session_id != self.session_id:
+                    return
+                by_name = {thread.name: thread.is_alive() for thread in threads}
+                LOGGER.debug(
+                    "[LIVE] session=%s generation=%s capture_alive=%s "
+                    "capture_enabled=%s stop_event=%s audio_frames=%s audio_level=%.6f "
+                    "vad_state=%s buffer_ms=%.0f segments=%s fast_queue=%s "
+                    "fast_jobs=%s fast_worker_alive=%s model_ready=%s whisper_started=%s "
+                    "whisper_completed=%s results_accepted=%s signals_emitted=%s",
+                    session_id, generation, by_name.get("audio-capture", False),
+                    self.running, self.stop_event.is_set(), capture.frames_received,
+                    capture.audio_level, "SPEECH" if buffer.speech_detected else "SILENCE",
+                    buffer.buffer_ms, buffer.segments_generated,
+                    self.asr_queue.qsize() if self.asr_queue is not None else -1,
+                    buffer.jobs_submitted, by_name.get("whisper-asr", False),
+                    getattr(asr, "model_ready", False),
+                    getattr(asr, "inference_started", 0),
+                    getattr(asr, "inference_completed", 0),
+                    getattr(asr, "results_accepted", 0),
+                    getattr(asr, "signals_emitted", 0))
+                if (buffer.speech_detected and buffer.jobs_submitted == 0 and
+                        buffer.speech_detected_at and
+                        time.monotonic() - buffer.speech_detected_at >= 3.0):
+                    LOGGER.warning(
+                        "[WATCHDOG] speech detected %.1fs ago; FAST jobs submitted=0; "
+                        "likely stage=SEGMENTATION",
+                        time.monotonic() - buffer.speech_detected_at)
+
+        Thread(target=heartbeat, name="pipeline-heartbeat", daemon=True).start()
 
     def switch_recognition_language(self, language: str, script: str) -> None:
         """Atomically switch future ASR work while retaining capture/model/history."""
@@ -205,6 +253,7 @@ class SpeechController:
         queues = (self.asr_queue,) if self.asr_queue is not None else ()
         stopped = LiveSessionBoundary(
             self.recognition_state, self.stop_event, queues).stop()
+        self._heartbeat_stop.set()
         self.signals.partial_text.emit("")
         self.running = False
         self.state = "READY"
@@ -882,13 +931,10 @@ class MainWindow(QWidget):
 
     def start_listening(self) -> None:
         self.ever_started = True
-        run_all = True
-        compare_all = True
         # Live capture must not queue minutes of immutable audio while Whisper
         # runs slower than real time. FAST uses newest-value scheduling; profile
         # comparisons belong to the prerecorded evaluation path.
-        mode = (PerformanceMode.FAST if run_all else
-                PerformanceMode(self.performance.currentText().lower()))
+        mode = PerformanceMode.FAST
         recognition_modes = {
             "Hindi / Hinglish": "hi", "Auto": "auto", "English": "en",
         }
@@ -919,7 +965,10 @@ class MainWindow(QWidget):
         self.translation_toggle.setEnabled(False)
         self.translation.setVisible(config.translation_enabled)
         self.display_mode.setEnabled(False)
-        for update in self.controller.start_stream(config, run_all):
+        # Live is deliberately FAST-only.  Starting comparison workers here used
+        # the same one-worker Whisper model as retired sessions, so Stop → Start
+        # could leave the new FAST decode queued behind obsolete refinements.
+        for update in self.controller.start_stream(config, compare_all=False):
             self.status.setText(update.message)
         self.record_started_at = time.monotonic()
         self.record_timer_label.setText("00:00")
@@ -947,6 +996,7 @@ class MainWindow(QWidget):
 
     def add_final(self, text: str) -> None:
         started = time.monotonic()
+        LOGGER.info("[PIPELINE] UI receives FAST final result")
         log_print(f"[GUI] final signal received chars={len(text)} text={text!r}")
         self.final_history.append(text)
         self.current_partial = ""
@@ -962,6 +1012,7 @@ class MainWindow(QWidget):
 
     def show_partial(self, text: str) -> None:
         started = time.monotonic()
+        LOGGER.info("[PIPELINE] UI receives FAST partial result")
         log_print(f"[GUI] partial signal received chars={len(text)} text={text!r}")
         self.current_partial = text
         self._render_live_text()

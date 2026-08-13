@@ -106,3 +106,41 @@ def test_ui_stop_path_has_no_join_or_poll_wait():
     assert "_wait_for_workers_to_stop" not in ui_stop
     # join is permitted only inside the nested background reaper.
     assert controller_stop.index("def reap") < controller_stop.index("worker.join()")
+
+
+def test_session_restart_001_live_start_is_fast_only():
+    """Retired comparison refinements cannot starve a restarted FAST session."""
+    source = Path("app/main.py").read_text(encoding="utf-8")
+    start = source.split("def start_listening", 1)[1].split(
+        "def stop_listening", 1)[0]
+    assert "start_stream(config, compare_all=False)" in start
+    assert "start_stream(config, run_all)" not in start
+
+
+def test_stop_state_001_each_start_owns_a_clear_session_event():
+    """Start must allocate a clear event rather than reuse the stopped event."""
+    source = Path("app/main.py").read_text(encoding="utf-8")
+    controller_start = source.split("def start(self,", 1)[1].split(
+        "def _start_diagnostic_heartbeat", 1)[0]
+    assert "self.stop_event = Event()" in controller_start
+    assert controller_start.index("self.stop_event = Event()") < controller_start.index(
+        "Thread(target=capture.run")
+
+
+def test_queue_restart_001_producer_and_consumer_share_queue():
+    """A restarted producer and FAST consumer receive the identical queue object."""
+    source = Path("app/main.py").read_text(encoding="utf-8")
+    controller_start = source.split("def start(self,", 1)[1].split(
+        "def _start_diagnostic_heartbeat", 1)[0]
+    assert "SpeechBufferWorker(config, audio_queue, asr_queue" in controller_start
+    assert "ASRWorker(config, asr_queue" in controller_start
+
+
+def test_generation_restart_001_new_jobs_accept_only_current_generation():
+    state = RecognitionState("hi", "original")
+    first = state.begin_session("hi", "original")
+    LiveSessionBoundary(state, Event()).stop()
+    second = state.begin_session("hi", "original")
+    assert second.generation > first.generation
+    assert state.is_current(second.generation)
+    assert not state.is_current(first.generation)
