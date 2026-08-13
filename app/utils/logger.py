@@ -198,6 +198,11 @@ def get_output_path() -> str:
     return str(_SESSION.session_log)
 
 
+def get_log_session() -> LogSession | None:
+    """Return active session metadata for structured diagnostic extensions."""
+    return _SESSION
+
+
 def log_print(message: object, level: int = logging.DEBUG) -> None:
     """Compatibility API for existing call sites; new code should use get_logger."""
     if not logging.getLogger(_LOGGER_NAME).handlers:

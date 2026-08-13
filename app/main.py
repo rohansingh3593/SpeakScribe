@@ -26,7 +26,11 @@ from app.asr.session_transition import LiveSessionBoundary
 from app.audio.audio_pipeline import AudioCaptureWorker, SpeechBufferWorker
 from app.config.settings import AppConfig, PerformanceMode
 from app.utils.logger import (
-    configure_logging, emit_status, get_logger, get_output_path, log_exception, log_print,
+    configure_logging, emit_status, get_log_session, get_logger, get_output_path,
+    log_exception, log_print,
+)
+from app.utils.pipeline_diagnostics import (
+    configure_pipeline_diagnostics, pipeline_diagnostics,
 )
 from app.processing.translation import TranslationWorker
 from app.processing.live_transcript import LiveTranscriptModel
@@ -38,6 +42,7 @@ from app.processing.text_processing import (
 )
 
 LOGGER = get_logger("ui")
+DEBUG_DIAGNOSTICS = False
 
 
 class SpeechSignals(QObject):
@@ -95,6 +100,11 @@ class SpeechController:
         if self.running:
             return
         self.running = True
+        log_session = get_log_session()
+        diagnostic_root = ((log_session.directory /
+                            time.strftime("listening_%Y-%m-%d_%H-%M-%S"))
+                           if log_session else Path("logs") / "pipeline")
+        configure_pipeline_diagnostics(diagnostic_root, config.diagnostics_enabled)
         self.state = "LISTENING"
         self.stop_event = Event()
         audio_queue = Queue(maxsize=config.max_audio_queue)
@@ -213,6 +223,7 @@ class SpeechController:
             **stopped.__dict__, "state_ready_at": time.monotonic(),
         }
         self.last_stop_metrics = metrics
+        pipeline_diagnostics().close("session_stop")
         LOGGER.info(
             "[STOP] capture-disabled=%.1fms generation-invalid=%.1fms "
             "queues-cleared=%.1fms ready=%.1fms jobs-cleared=%s generation=%s",
@@ -787,6 +798,7 @@ class MainWindow(QWidget):
             mode_state["processing_started"] = None
         self._render_segment(segment_id)
         if final:
+            existed = segment_id in self.live_transcript._finals
             changed = self.live_transcript.commit(
                 segment_id, state.get("display_text") or text,
                 language=metrics.get("language", ""),
@@ -796,9 +808,28 @@ class MainWindow(QWidget):
             self._render_processing()
             if changed:
                 self._render_final()
+                diagnostics = pipeline_diagnostics()
+                diagnostics.stage(
+                    segment_id, "UI", view="FINAL",
+                    action="REPLACE" if existed else "APPEND",
+                    paragraph=len(self.live_transcript.paragraphs()), accepted=True,
+                    source=mode_name.upper())
+                diagnostics.terminal(
+                    segment_id, "FINAL", "delivered_to_final_ui", "UI",
+                    action="REPLACE" if existed else "APPEND")
         else:
             self.live_transcript.update_partial(text, segment_id)
             self._render_processing(mode_name, metrics)
+            diagnostics = pipeline_diagnostics()
+            ui_latency = max(0.0, time.monotonic() -
+                             metrics.get("candidate_speech_at", time.monotonic()))
+            if text and mode_name == "fast":
+                diagnostics.first_text_seconds.append(ui_latency)
+            diagnostics.stage(
+                segment_id, "UI", view="PROCESSING", source=mode_name.upper(),
+                text_length=len(text), accepted=True,
+                signal_to_ui_ms=max(0.0, (time.monotonic() -
+                    metrics.get("signal_emitted_at", time.monotonic())) * 1000))
         render_finished = time.monotonic()
         metrics["ui_render"] = render_finished - slot_entered
         if metrics.get("language_switch_requested_at"):
@@ -1019,6 +1050,7 @@ class MainWindow(QWidget):
                            max_audio_queue=100,
                            max_asr_queue=1,
                            max_utterance_seconds=15.0)
+        config.diagnostics_enabled = DEBUG_DIAGNOSTICS
         self.performance_label.setText("FAST live transcription — refinements deferred")
         self._set_status("Starting…")
         self.live_mode_label.setText(f"▰ Mode: {mode.value.title()}")
@@ -1188,8 +1220,10 @@ def startup_status():
 
 
 def main(argv=None) -> int:
+    global DEBUG_DIAGNOSTICS
     enable()
     args, qt_args = parse_args(argv)
+    DEBUG_DIAGNOSTICS = args.debug
     configure_logging(debug=args.debug)
     statuses = startup_status()
     try:

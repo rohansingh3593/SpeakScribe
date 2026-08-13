@@ -14,6 +14,7 @@ from speakscribe.audio.processor import audio_normalization_gain, prepare_audio_
 
 from app.config.settings import AppConfig
 from app.utils.logger import get_logger, log_exception
+from app.utils.pipeline_diagnostics import RootCause, pipeline_diagnostics
 
 
 LOGGER = get_logger("audio")
@@ -228,6 +229,16 @@ class AudioCaptureWorker:
                             f"zeros={asr_stats['zero_ratio']:.3f} finite={asr_stats['finite']} "
                             f"audio_queue={self.output.qsize()}"
                         )
+                        diagnostics = pipeline_diagnostics()
+                        diagnostics.audio_seconds += len(resampled) / self.config.sample_rate
+                        diagnostics.event(
+                            "AUDIO", None, device=source_description,
+                            sample_rate=self.config.sample_rate, channels=1,
+                            frames_received=asr_stats["samples"],
+                            duration_ms=round(1000 * len(resampled) / self.config.sample_rate),
+                            rms=asr_stats["rms"], peak=asr_stats["peak"],
+                            audio_received_sec=round(diagnostics.audio_seconds, 3),
+                            audio_dropped_frames=dropped_audio_frames)
                         next_diagnostic = now + self.config.debug_log_interval
                     for frame in frames:
                         try:
@@ -239,6 +250,10 @@ class AudioCaptureWorker:
                                 pass
                             self.output.put_nowait(frame)
                             dropped_audio_frames += 1
+                            pipeline_diagnostics().event(
+                                "DISCARD", None, stage_name="AUDIO_CAPTURE",
+                                reason="audio_queue_full_oldest_frame",
+                                dropped_frames=dropped_audio_frames)
                             if now >= next_queue_warning:
                                 LOGGER.warning(
                                     "Audio queue full; dropped %s oldest raw frame(s) since "
@@ -260,6 +275,12 @@ class SpeechBufferWorker:
         self.utterance_id = 0
 
     def _submit(self, job: ASRJob) -> None:
+        diagnostics = pipeline_diagnostics()
+        diagnostics.stage(
+            job.utterance_id, "QUEUE", action="SUBMIT", mode="FAST",
+            final=job.final, depth=self.asr_queue.qsize(),
+            audio_duration=len(job.audio) / self.config.sample_rate,
+            generation=job.language_generation, language=job.language)
         LOGGER.debug(
             f"[QUEUE] submit final={job.final} utterance={job.utterance_id} "
             f"audio={len(job.audio) / self.config.sample_rate:.2f}s "
@@ -279,11 +300,16 @@ class SpeechBufferWorker:
                     LOGGER.warning(
                         "ASR is behind; replaced stale final utterance=%s with newest "
                         "utterance=%s", pending.utterance_id, job.utterance_id)
+                    diagnostics.terminal(
+                        pending.utterance_id, "REJECTED", "replaced_by_newest_final",
+                        RootCause.QUEUE, replacement=self.utterance_id)
                     self.asr_queue.put_nowait(job)
                     return
                 self.asr_queue.put_nowait(pending)
             elif pending is not None:
                 LOGGER.debug(f"[QUEUE] evicted obsolete partial utterance={pending.utterance_id}")
+                diagnostics.event("DISCARD", pending.utterance_id,
+                                  stage_name="QUEUE", reason="final_supersedes_partial")
 
             # Existing finals are never evicted; wait briefly for inference.
             deadline = time.monotonic() + 0.5 if self.stop_event.is_set() else None
@@ -301,6 +327,8 @@ class SpeechBufferWorker:
                 try:
                     pending = self.asr_queue.get_nowait()
                 except Empty:
+                    diagnostics.event("DISCARD", job.utterance_id,
+                                      stage_name="QUEUE", reason="queue_race_empty_partial")
                     return
                 if pending.final:
                     self.asr_queue.put_nowait(pending)
@@ -319,11 +347,14 @@ class SpeechBufferWorker:
                                     "of protected old final", job.language_generation)
                         return
                     LOGGER.debug("[QUEUE] kept queued final; dropped new partial")
+                    diagnostics.event("DISCARD", job.utterance_id,
+                                      stage_name="QUEUE", reason="final_backlog_partial_replaceable")
                     return
                 try:
                     self.asr_queue.put_nowait(job)
                 except Full:
-                    pass
+                    diagnostics.event("DISCARD", job.utterance_id,
+                                      stage_name="QUEUE", reason="queue_still_full")
 
     def run(self) -> None:
         frame_seconds = self.config.frame_ms / 1000
@@ -386,6 +417,15 @@ class SpeechBufferWorker:
                     f"silence={silence:.2f}s "
                     f"audio_queue={self.audio_queue.qsize()} asr_queue={self.asr_queue.qsize()}"
                 )
+                pipeline_diagnostics().heartbeat(
+                    capture="OK", audio_rms=round(rms, 6),
+                    vad="SPEECH" if self.detector.speaking else "SILENCE",
+                    buffer_sec=round(len(speech) * frame_seconds, 3),
+                    fast_queue=self.asr_queue.qsize(), balanced_queue=0,
+                    accurate_queue=0, fast_worker="ALIVE",
+                    generation=current.generation if current else 0,
+                    language=current.language if current else self.config.language_mode,
+                    dropped_segments=pipeline_diagnostics().counts["rejected"])
                 diagnostic_rms.clear()
                 next_diagnostic = now + self.config.debug_log_interval
             if not speech:
@@ -403,6 +443,11 @@ class SpeechBufferWorker:
                         "Voice detected | utterance=%s rms=%.6f threshold=%.6f",
                         self.utterance_id, rms, self.detector.effective_start_threshold,
                     )
+                    pipeline_diagnostics().detected(
+                        self.utterance_id, recognition.generation if recognition else 0,
+                        recognition.language if recognition else self.config.language_mode,
+                        timestamp=round(utterance_start, 3), rms=rms,
+                        threshold=self.detector.effective_start_threshold)
                 continue
             speech.append(frame)
             if active:
@@ -445,6 +490,21 @@ class SpeechBufferWorker:
                         recognition.generation if recognition else 0,
                         recognition.switched_at if recognition else 0.0,
                         recognition.ready_at if recognition else 0.0))
+                    diagnostics = pipeline_diagnostics()
+                    diagnostics.speech_seconds += usable
+                    diagnostics.stage(
+                        self.utterance_id, "SEGMENT",
+                        captured_start=utterance_start,
+                        captured_end=utterance_start + duration,
+                        captured_duration=duration, asr_start=utterance_start,
+                        asr_end=utterance_start + len(audio) / self.config.sample_rate,
+                        asr_duration=len(audio) / self.config.sample_rate,
+                        trimmed_start_ms=0, trimmed_end_ms=round(silence * 1000),
+                        reason="silence" if ended else "maximum_duration")
+                    diagnostics.stage(
+                        self.utterance_id, "VAD END", speech_duration=usable,
+                        silence_duration=silence)
+                    diagnostics.save_audio(self.utterance_id, audio)
                     LOGGER.info(
                         "Voice captured | utterance=%s voiced=%.2fs audio=%.2fs; queued for ASR",
                         self.utterance_id, usable, len(audio) / self.config.sample_rate,
@@ -454,6 +514,10 @@ class SpeechBufferWorker:
                         f"[VAD] discarded short utterance={self.utterance_id} "
                         f"usable={usable:.2f}s minimum={self.config.min_speech_duration:.2f}s"
                     )
+                    pipeline_diagnostics().terminal(
+                        self.utterance_id, "REJECTED", "below_minimum_speech_duration",
+                        RootCause.VAD, duration_ms=round(usable * 1000),
+                        minimum_ms=round(self.config.min_speech_duration * 1000))
                 speech.clear()
                 voiced_duration = 0.0
                 silence = 0.0
