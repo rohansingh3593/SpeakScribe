@@ -340,14 +340,13 @@ class SpeechBufferWorker:
         vad_activated_at = 0.0
         recognition = (self.recognition_state.snapshot()
                        if self.recognition_state is not None else None)
-        while not self.stop_event.is_set() or not self.audio_queue.empty():
+        # Stop is a live-session boundary, not a request to drain captured audio.
+        # Frames remaining in this session's private queue are intentionally stale.
+        while not self.stop_event.is_set():
             try:
                 frame = self.audio_queue.get(timeout=0.1)
             except Empty:
                 continue
-            active, rms = self.detector.classify(frame)
-            stream_seconds += frame_seconds
-            now = time.monotonic()
             current = (self.recognition_state.snapshot()
                        if self.recognition_state is not None else recognition)
             if (recognition is not None and
@@ -363,7 +362,11 @@ class SpeechBufferWorker:
                 self.utterance_id += 1
                 LOGGER.info("[LANG-SWITCH] old utterance closed; rolling audio and VAD reset "
                             "generation=%s", current.generation)
-                continue
+            # Classify the boundary frame only after reset and retain it as the
+            # first clean pre-roll frame for the new generation.
+            active, rms = self.detector.classify(frame)
+            stream_seconds += frame_seconds
+            now = time.monotonic()
             if not speech and self.detector.start_frames == 1:
                 candidate_speech_at = now
             diagnostic_rms.append(rms)
@@ -457,16 +460,6 @@ class SpeechBufferWorker:
                 self.detector.reset()
                 candidate_speech_at = 0.0
                 vad_activated_at = 0.0
-        # A stop click may arrive mid-utterance. Preserve that speech as a final
-        # job rather than silently throwing away the last words.
-        duration = len(speech) * frame_seconds
-        if voiced_duration >= self.config.min_speech_duration:
-            self._submit(ASRJob(
-                np.concatenate(speech), True, self.utterance_id,
-                time.monotonic(), voiced_duration, utterance_start,
-                utterance_start + duration, candidate_speech_at, vad_activated_at,
-                recognition.language if recognition else self.config.language_mode,
-                recognition.script if recognition else self.config.script_mode,
-                recognition.generation if recognition else 0,
-                recognition.switched_at if recognition else 0.0,
-                recognition.ready_at if recognition else 0.0))
+        LOGGER.info("[STOP] speech buffer closed without stop-time refinement | "
+                    "utterance=%s buffered=%.2fs", self.utterance_id,
+                    len(speech) * frame_seconds)

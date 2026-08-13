@@ -317,29 +317,25 @@ class ASRWorker:
                         self.config.model_size, self.config.language_mode,
                         self.config.device, self.config.capture_source)
             process = Process()
-            stop_empty_since = None
             while True:
                 try:
                     job = self.queue.get(timeout=0.1)
                 except Empty:
                     if not self.stop_event.is_set():
                         continue
-                    if stop_empty_since is None:
-                        stop_empty_since = time.monotonic()
-                    # SpeechBufferWorker may still be draining raw audio and
-                    # enqueueing the stop-time final. Give it a bounded handoff
-                    # window rather than racing out on the first empty poll.
-                    if time.monotonic() - stop_empty_since >= 0.75:
-                        break
+                    break
+                if (self.recognition_state is not None and
+                        not self.recognition_state.is_current(job.language_generation)):
+                    LOGGER.info("[GENERATION] cancelled queued stale ASR job generation=%s "
+                                "utterance=%s", job.language_generation, job.utterance_id)
                     continue
-                stop_empty_since = None
                 started = time.monotonic()
                 text, language, metadata = _unpack_transcription(
                     engine.transcribe(job, " ".join(self.history)))
                 stale = (self.recognition_state is not None and
                          not self.recognition_state.is_current(job.language_generation))
-                if stale and not job.final:
-                    LOGGER.info("[LANG-SWITCH] ignored stale live result generation=%s "
+                if stale:
+                    LOGGER.info("[GENERATION] ignored stale ASR result generation=%s "
                                 "current=%s utterance=%s", job.language_generation,
                                 self.recognition_state.snapshot().generation,
                                 job.utterance_id)
@@ -366,8 +362,6 @@ class ASRWorker:
                         self.history.append(text)
                         self.signals.final_text.emit(text)
                         self.signals.partial_text.emit("")
-                    elif hasattr(self.signals, "stale_final_text"):
-                        self.signals.stale_final_text.emit(text)
                     LOGGER.info("Transcription ready | utterance=%s language=%s text=%r",
                                 job.utterance_id, language, text)
                 else:
@@ -408,18 +402,18 @@ class ComparisonASRWorker:
                     ",".join(mode.value for mode in PerformanceMode))
         for worker in workers:
             worker.start()
-        stop_empty_since = None
         while True:
             try:
                 job = self.queue.get(timeout=0.1)
             except Empty:
                 if not self.stop_event.is_set():
                     continue
-                stop_empty_since = stop_empty_since or time.monotonic()
-                if time.monotonic() - stop_empty_since >= 0.75:
-                    break
+                break
+            if (self.recognition_state is not None and
+                    not self.recognition_state.is_current(job.language_generation)):
+                LOGGER.info("[GENERATION] cancelled stale scheduler job generation=%s "
+                            "utterance=%s", job.language_generation, job.utterance_id)
                 continue
-            stop_empty_since = None
             if job.final:
                 self._enqueue_mode_job(PerformanceMode.FAST, queues[PerformanceMode.FAST], job)
             else:
@@ -481,6 +475,13 @@ class ComparisonASRWorker:
             job = queue.get()
             if job is None:
                 return
+            if (self.recognition_state is not None and
+                    not self.recognition_state.is_current(job.language_generation)):
+                self.signals.mode_status.emit(job.utterance_id, mode.value, "Expired")
+                LOGGER.info("[GENERATION] cancelled queued %s refinement generation=%s "
+                            "utterance=%s", mode.value, job.language_generation,
+                            job.utterance_id)
+                continue
             self.signals.mode_status.emit(job.utterance_id, mode.value, "Processing")
             started = time.monotonic()
             try:
@@ -495,8 +496,8 @@ class ComparisonASRWorker:
                     engine.transcribe(job, context))
                 current = (self.recognition_state is None or
                            self.recognition_state.is_current(job.language_generation))
-                if not current and not job.final:
-                    LOGGER.info("[LANG-SWITCH] ignored stale live result generation=%s "
+                if not current:
+                    LOGGER.info("[GENERATION] ignored stale comparison result generation=%s "
                                 "utterance=%s mode=%s", job.language_generation,
                                 job.utterance_id, mode.value)
                     self.signals.mode_status.emit(

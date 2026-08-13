@@ -37,6 +37,25 @@ class RecognitionState:
                 requested_at, time.monotonic())
             return self._snapshot
 
+    def begin_session(self, language: str, script: str) -> RecognitionSnapshot:
+        """Start a fresh capture generation, even when configuration is unchanged."""
+        requested_at = time.monotonic()
+        with self._lock:
+            previous = self._snapshot
+            self._snapshot = RecognitionSnapshot(
+                language, script, previous.generation + 1,
+                requested_at, time.monotonic())
+            return self._snapshot
+
+    def invalidate(self) -> RecognitionSnapshot:
+        """Immediately make every job from the active live session stale."""
+        with self._lock:
+            previous = self._snapshot
+            now = time.monotonic()
+            self._snapshot = RecognitionSnapshot(
+                previous.language, previous.script, previous.generation + 1, now, now)
+            return self._snapshot
+
     def is_current(self, generation: int) -> bool:
         with self._lock:
             return generation == self._snapshot.generation

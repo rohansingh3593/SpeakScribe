@@ -105,9 +105,6 @@ def test_post_switch_first_audio_sample_is_preserved(test_id, source, target, fi
     assert fresh.audio[0] == pytest.approx(first)
 
 
-@pytest.mark.xfail(
-    reason="Known first-word risk: generation-boundary frame is consumed then discarded",
-    strict=True)
 def test_immediate_first_post_switch_frame_reaches_new_pre_roll(record_switch):
     """Expose the real boundary-frame loss rather than hiding it with a job-only check."""
     config = AppConfig(performance_mode=PerformanceMode.FAST)
@@ -127,6 +124,9 @@ def test_immediate_first_post_switch_frame_reaches_new_pre_roll(record_switch):
         audio_queue.put(np.full(frame_samples, 0.5, dtype=np.float32))
     for _ in range(35):
         audio_queue.put(np.zeros(frame_samples, dtype=np.float32))
+    deadline = time.monotonic() + 1.0
+    while not submitted and time.monotonic() < deadline:
+        time.sleep(0.005)
     stop.set()
     thread.join(2)
     contains_marker = any(np.isclose(value.audio, 0.91).any() for value in submitted)
