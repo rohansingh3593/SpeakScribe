@@ -22,3 +22,9 @@ def test_interactive_continuous_speech_finalizes_before_old_fifteen_second_bound
     source = Path("app/main.py").read_text(encoding="utf-8")
     start = source.split("def start_listening", 1)[1].split("def stop_listening", 1)[0]
     assert "max_utterance_seconds=8.0" in start
+
+
+def test_language_shortcut_uses_auto_label_and_mode():
+    source = Path("app/main.py").read_text(encoding="utf-8")
+    assert 'self.btn_lang_hing = QPushButton("Auto")' in source
+    assert 'self.btn_lang_hing.clicked.connect(lambda: self._select_language("Auto"))' in source

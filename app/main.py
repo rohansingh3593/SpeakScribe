@@ -376,7 +376,7 @@ class MainWindow(QWidget):
         self.btn_record_clear = QPushButton("🧹")
         self.btn_lang_eng = QPushButton("Eng")
         self.btn_lang_hin = QPushButton("Hin")
-        self.btn_lang_hing = QPushButton("Hing")
+        self.btn_lang_hing = QPushButton("Auto")
         self.btn_copy_transcript = QPushButton("📋 Copy")
         self.btn_record_start.setToolTip("Start live transcription")
         self.btn_record_stop.setToolTip("Stop live transcription")
