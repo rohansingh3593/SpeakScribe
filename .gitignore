@@ -12,6 +12,7 @@ tests/speech_cases/**/*.wav
 tests/results/latest_report.*
 tests/generated/
 test_logs/
+test_reports/*.xlsx
 .venv/
 venv/
 speech_env/

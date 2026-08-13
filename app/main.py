@@ -21,6 +21,8 @@ from PyQt6.QtWidgets import (
 )
 
 from app.asr.asr_engine import ASRWorker, ComparisonASRWorker, WhisperModelProvider
+from app.asr.language_transition import RecognitionState
+from app.asr.session_transition import LiveSessionBoundary
 from app.audio.audio_pipeline import AudioCaptureWorker, SpeechBufferWorker
 from app.config.settings import AppConfig, PerformanceMode
 from app.utils.logger import (
@@ -40,6 +42,7 @@ LOGGER = get_logger("ui")
 class SpeechSignals(QObject):
     partial_text = pyqtSignal(str)
     final_text = pyqtSignal(str)
+    stale_final_text = pyqtSignal(str)
     language_changed = pyqtSignal(str)
     status_changed = pyqtSignal(str)
     error = pyqtSignal(str)
@@ -61,6 +64,11 @@ class SpeechController:
         self.preload_thread: Thread | None = None
         self.shutdown_thread: Thread | None = None
         self.running = False
+        self.state = "READY"
+        self.recognition_state: RecognitionState | None = None
+        self.asr_queue: Queue | None = None
+        self.retired_threads: list[Thread] = []
+        self.last_stop_metrics: dict[str, float | int] = {}
 
     def preload_model(self) -> None:
         """Warm Whisper after the window opens instead of after speech begins."""
@@ -86,16 +94,24 @@ class SpeechController:
         if self.running:
             return
         self.running = True
+        self.state = "LISTENING"
         self.stop_event = Event()
         audio_queue = Queue(maxsize=config.max_audio_queue)
         asr_queue = Queue(maxsize=config.max_asr_queue)
+        self.asr_queue = asr_queue
+        if self.recognition_state is None:
+            self.recognition_state = RecognitionState(
+                config.language_mode, config.script_mode)
+        session = self.recognition_state.begin_session(
+            config.language_mode, config.script_mode)
         capture = AudioCaptureWorker(config, audio_queue, self.stop_event,
                                      self.signals.error.emit)
-        buffer = SpeechBufferWorker(config, audio_queue, asr_queue, self.stop_event)
+        buffer = SpeechBufferWorker(config, audio_queue, asr_queue, self.stop_event,
+                                    self.recognition_state)
         asr = (ComparisonASRWorker(config, asr_queue, self.stop_event, self.signals,
-                                   self.model_provider) if compare_all else
+                                   self.model_provider, self.recognition_state) if compare_all else
                ASRWorker(config, asr_queue, self.stop_event, self.signals,
-                         self.model_provider))
+                         self.model_provider, self.recognition_state))
         self.threads = [
             Thread(target=capture.run, name="audio-capture", daemon=True),
             Thread(target=buffer.run, name="speech-buffer", daemon=True),
@@ -120,6 +136,43 @@ class SpeechController:
             f"model={config.model_size} mode={config.performance_mode.value} "
             f"debug_audio={config.debug_audio_enabled}"
         )
+        LOGGER.info("[SESSION] listening generation=%s language=%s",
+                    session.generation, session.language)
+
+    def switch_recognition_language(self, language: str, script: str) -> None:
+        """Atomically switch future ASR work while retaining capture/model/history."""
+        if not self.running or self.recognition_state is None:
+            return
+        previous = self.recognition_state.snapshot()
+        if previous.language == language and previous.script == script:
+            return
+        LOGGER.info("[LANG-SWITCH] requested %s → %s", previous.language, language)
+        self.signals.status_changed.emit("Switching language…")
+        current = self.recognition_state.switch(language, script)
+        cancelled = 0
+        retained = []
+        if self.asr_queue is not None:
+            while True:
+                try:
+                    pending = self.asr_queue.get_nowait()
+                except Empty:
+                    break
+                if pending.final:
+                    retained.append(pending)
+                else:
+                    cancelled += 1
+            for pending in retained:
+                try:
+                    self.asr_queue.put_nowait(pending)
+                except Full:
+                    break
+        LOGGER.info("[LANG-SWITCH] old partial jobs cancelled count=%s", cancelled)
+        LOGGER.info("[LANG-SWITCH] context reset; active language=%s script=%s generation=%s",
+                    current.language, current.script, current.generation)
+        elapsed_ms = (current.ready_at - current.switched_at) * 1000
+        LOGGER.info("[LANG-SWITCH] ready in %.1fms (model reused; audio capture retained)",
+                    elapsed_ms)
+        self.signals.status_changed.emit("Ready")
 
     def start_stream(self, config: AppConfig, compare_all: bool = False):
         """Preserve ``start`` while yielding live, already-logged status updates."""
@@ -144,40 +197,49 @@ class SpeechController:
             except (Empty, Full):
                 pass
 
-    def stop(self, timeout: float = 3.0) -> bool:
+    def reset_live_session(self) -> dict[str, float | int]:
+        """Invalidate and detach the current live session without waiting for ASR."""
+        self.state = "STOPPING"
+        if self.recognition_state is None:
+            raise RuntimeError("Cannot reset a session before recognition state exists")
+        queues = (self.asr_queue,) if self.asr_queue is not None else ()
+        stopped = LiveSessionBoundary(
+            self.recognition_state, self.stop_event, queues).stop()
+        self.signals.partial_text.emit("")
+        self.running = False
+        self.state = "READY"
+        metrics = {
+            **stopped.__dict__, "state_ready_at": time.monotonic(),
+        }
+        self.last_stop_metrics = metrics
+        LOGGER.info(
+            "[STOP] capture-disabled=%.1fms generation-invalid=%.1fms "
+            "queues-cleared=%.1fms ready=%.1fms jobs-cleared=%s generation=%s",
+            (stopped.capture_disabled_at - stopped.stop_clicked_at) * 1000,
+            (stopped.generation_invalidated_at - stopped.stop_clicked_at) * 1000,
+            (stopped.queues_cleared_at - stopped.stop_clicked_at) * 1000,
+            (metrics["state_ready_at"] - stopped.stop_clicked_at) * 1000,
+            stopped.jobs_cleared, stopped.generation)
+        return metrics
+
+    def stop(self, timeout: float = 0.0) -> bool:
         if not self.running:
             return True
-        self.stop_event.set()
-        deadline = time.monotonic() + timeout
-        for thread in self.threads:
-            thread.join(timeout=max(0.0, deadline - time.monotonic()))
-            if thread.is_alive():
-                log_print(f"Worker still winding down: {thread.name}")
-        alive = [thread for thread in self.threads if thread.is_alive()]
-        if alive:
-            # CTranslate2 inference cannot be cancelled safely. Keep the
-            # controller busy until it returns so Start cannot create a second
-            # capture/ASR generation sharing and mutating the same model.
-            self.threads = alive
-            self.signals.status_changed.emit("Stopping… finishing current ASR job")
-            if self.shutdown_thread is None or not self.shutdown_thread.is_alive():
-                def reap() -> None:
-                    for worker in alive:
-                        worker.join()
-                    self.threads.clear()
-                    self.translation_queue = None
-                    self.running = False
-                    self.signals.status_changed.emit("Stopped")
-                    log_print("Listening stopped after ASR drain")
-                self.shutdown_thread = Thread(
-                    target=reap, name="worker-shutdown", daemon=True)
-                self.shutdown_thread.start()
-            return False
-        self.threads.clear()
+        old_threads = list(self.threads)
+        self.reset_live_session()
+        self.retired_threads.extend(old_threads)
+        self.threads = []
         self.translation_queue = None
-        self.running = False
-        self.signals.status_changed.emit("Stopped")
-        log_print("Listening stopped")
+        def reap() -> None:
+            for worker in old_threads:
+                worker.join()
+                try:
+                    self.retired_threads.remove(worker)
+                except ValueError:
+                    pass
+            log_print("Retired listening workers cleaned up in background")
+        Thread(target=reap, name="worker-cleanup", daemon=True).start()
+        self.signals.status_changed.emit("Ready")
         return True
 
 
@@ -436,6 +498,7 @@ class MainWindow(QWidget):
         self.btn_lang_hin.clicked.connect(lambda: self._select_language("Hindi / Hinglish"))
         self.btn_lang_hing.clicked.connect(lambda: self._select_language("Auto"))
         self.language_mode.currentTextChanged.connect(self._sync_language_buttons)
+        self.language_mode.currentTextChanged.connect(self._switch_language_if_running)
         self._sync_language_buttons()
 
     def _select_language(self, label: str) -> None:
@@ -447,6 +510,15 @@ class MainWindow(QWidget):
         self.btn_lang_eng.setEnabled(selected != "English")
         self.btn_lang_hin.setEnabled(selected != "Hindi / Hinglish")
         self.btn_lang_hing.setEnabled(selected != "Auto")
+
+    def _switch_language_if_running(self, *_args) -> None:
+        modes = {"Hindi / Hinglish": "hi", "Auto": "auto", "English": "en"}
+        script = self.script.currentText().lower()
+        script = "latin" if script == "latin / roman" else script
+        self.current_partial = ""
+        self._render_live_text()
+        self.controller.switch_recognition_language(
+            modes[self.language_mode.currentText()], script)
 
     def _start_system_move(self) -> None:
         handle = self.windowHandle()
@@ -468,6 +540,7 @@ class MainWindow(QWidget):
     def _connect_signals(self) -> None:
         self.signals.partial_text.connect(self.show_partial)
         self.signals.final_text.connect(self.add_final)
+        self.signals.stale_final_text.connect(self.add_stale_final)
         self.signals.language_changed.connect(
             lambda value: self.language.setText(f"Language: {value}"))
         self.signals.status_changed.connect(self.status.setText)
@@ -616,6 +689,20 @@ class MainWindow(QWidget):
         self._render_segment(segment_id)
         render_finished = time.monotonic()
         metrics["ui_render"] = render_finished - slot_entered
+        if metrics.get("language_switch_requested_at"):
+            metrics["first_ui_display_at"] = render_finished
+            switch_ms = max(0.0, (
+                metrics.get("language_ready_at") or render_finished) -
+                metrics["language_switch_requested_at"]) * 1000
+            speech_to_fast_ms = max(0.0, (
+                (metrics.get("first_fast_result_at") or render_finished) -
+                (metrics.get("first_new_speech_at") or render_finished))) * 1000
+            fast_to_ui_ms = max(0.0, render_finished - (
+                metrics.get("first_fast_result_at") or render_finished)) * 1000
+            LOGGER.info("[LANG-SWITCH] latency generation=%s config=%.1fms "
+                        "speech-to-fast=%.1fms fast-to-ui=%.1fms",
+                        metrics.get("language_generation"), switch_ms,
+                        speech_to_fast_ms, fast_to_ui_ms)
         candidate_at = metrics.get("candidate_speech_at")
         if candidate_at:
             metrics["total_visible_latency"] = render_finished - candidate_at
@@ -826,9 +913,8 @@ class MainWindow(QWidget):
         self.stop_button.setEnabled(True)
         self.performance.setEnabled(False)
         self.script.setEnabled(False)
-        self.language_mode.setEnabled(False)
-        for button in (self.btn_lang_eng, self.btn_lang_hin, self.btn_lang_hing):
-            button.setEnabled(False)
+        self.language_mode.setEnabled(True)
+        self._sync_language_buttons()
         self.capture_source.setEnabled(False)
         self.translation_toggle.setEnabled(False)
         self.translation.setVisible(config.translation_enabled)
@@ -841,18 +927,8 @@ class MainWindow(QWidget):
 
     def stop_listening(self) -> None:
         self.status.setText("Stopping…")
-        # Joining is bounded; normal workers exit quickly without forceful termination.
-        if not self.controller.stop():
-            self.start_button.setEnabled(False)
-            self.stop_button.setEnabled(False)
-            QTimer.singleShot(250, self._wait_for_workers_to_stop)
-            return
-        self._finish_stop_ui()
-
-    def _wait_for_workers_to_stop(self) -> None:
-        if self.controller.running:
-            QTimer.singleShot(250, self._wait_for_workers_to_stop)
-            return
+        # Stop invalidates the live generation and returns without joining ASR.
+        self.controller.stop()
         self._finish_stop_ui()
 
     def _finish_stop_ui(self) -> None:
@@ -877,6 +953,12 @@ class MainWindow(QWidget):
         self._render_live_text()
         log_print(f"[GUI] final rendered in {(time.monotonic() - started) * 1000:.1f}ms")
         self.controller.translate(text)  # display has already happened
+
+    def add_stale_final(self, text: str) -> None:
+        """Preserve required old speech without clearing the new live partial."""
+        self.final_history.append(text)
+        self._render_live_text()
+        self.controller.translate(text)
 
     def show_partial(self, text: str) -> None:
         started = time.monotonic()
