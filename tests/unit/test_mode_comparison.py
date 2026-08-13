@@ -88,7 +88,7 @@ def test_comparison_worker_fans_same_audio_to_three_isolated_modes():
     assert signals.mode_error.values[0][1] == "balanced"
 
 
-def test_comparison_worker_runs_live_partial_on_fast_only():
+def test_comparison_worker_preserves_live_partial_refinement_for_all_modes():
     calls = []
 
     class Provider:
@@ -108,11 +108,13 @@ def test_comparison_worker_runs_live_partial_on_fast_only():
     stop.set()
     ComparisonASRWorker(AppConfig(), queue, stop, signals, Provider()).run()
 
-    assert {mode for mode, _audio in calls} == {PerformanceMode.FAST}
+    assert {mode for mode, _audio in calls} == set(PerformanceMode)
     assert all(shared is audio for _mode, shared in calls)
     assert {(value[0], value[1], value[2], value[3])
             for value in signals.mode_text.values} == {
         (8, "fast", "live words", False),
+        (8, "balanced", "live words", False),
+        (8, "accurate", "live words", False),
     }
     assert all("result_latency" in value[4] and "queue_delay" in value[4]
                for value in signals.mode_text.values)
@@ -168,7 +170,10 @@ def test_empty_partial_returns_to_listening_instead_of_blank_partial_cell():
 
     assert signals.mode_text.values == []
     assert {(item[0], item[1], item[2]) for item in signals.mode_status.values
-            if item[2] == "Listening"} == {(9, "fast", "Listening")}
+            if item[2] == "Listening"} == {
+        (9, "fast", "Listening"), (9, "balanced", "Listening"),
+        (9, "accurate", "Listening"),
+    }
 
 
 def test_results_older_than_live_deadline_are_expired_without_decoding():

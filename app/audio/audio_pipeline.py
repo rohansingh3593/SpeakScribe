@@ -27,6 +27,8 @@ class ASRJob:
     speech_seconds: float | None = None
     audio_start_time: float = 0.0
     audio_end_time: float = 0.0
+    candidate_speech_at: float = 0.0
+    vad_activated_at: float = 0.0
 
 
 def select_capture_device(soundcard, source: str):
@@ -314,6 +316,8 @@ class SpeechBufferWorker:
         next_diagnostic = time.monotonic() + self.config.debug_log_interval
         stream_seconds = 0.0
         utterance_start = 0.0
+        candidate_speech_at = 0.0
+        vad_activated_at = 0.0
         while not self.stop_event.is_set() or not self.audio_queue.empty():
             try:
                 frame = self.audio_queue.get(timeout=0.1)
@@ -322,6 +326,8 @@ class SpeechBufferWorker:
             active, rms = self.detector.classify(frame)
             stream_seconds += frame_seconds
             now = time.monotonic()
+            if not speech and self.detector.start_frames == 1:
+                candidate_speech_at = now
             diagnostic_rms.append(rms)
             if now >= next_diagnostic:
                 LOGGER.debug(
@@ -351,6 +357,7 @@ class SpeechBufferWorker:
                     pre.clear()
                     silence = 0.0
                     last_partial = now
+                    vad_activated_at = now
                     LOGGER.info(
                         "Voice detected | utterance=%s rms=%.6f threshold=%.6f",
                         self.utterance_id, rms, self.detector.effective_start_threshold,
@@ -369,8 +376,10 @@ class SpeechBufferWorker:
                 partial_end = utterance_start + duration
                 partial_start = max(
                     utterance_start, partial_end - len(audio) / self.config.sample_rate)
-                self._submit(ASRJob(audio, False, self.utterance_id, now,
-                                    voiced_duration, partial_start, partial_end))
+                self._submit(ASRJob(
+                    audio, False, self.utterance_id, now, voiced_duration,
+                    partial_start, partial_end, candidate_speech_at,
+                    vad_activated_at))
                 last_partial = now
             ended = silence >= self.config.silence_duration
             if ended or duration >= self.config.max_utterance_seconds:
@@ -380,9 +389,11 @@ class SpeechBufferWorker:
                     audio = np.concatenate(speech)
                     if trim:
                         audio = audio[:-trim]
-                    self._submit(ASRJob(audio, True, self.utterance_id, now,
-                                        voiced_duration, utterance_start,
-                                        utterance_start + len(audio) / self.config.sample_rate))
+                    self._submit(ASRJob(
+                        audio, True, self.utterance_id, now, voiced_duration,
+                        utterance_start,
+                        utterance_start + len(audio) / self.config.sample_rate,
+                        candidate_speech_at, vad_activated_at))
                     LOGGER.info(
                         "Voice captured | utterance=%s voiced=%.2fs audio=%.2fs; queued for ASR",
                         self.utterance_id, usable, len(audio) / self.config.sample_rate,
@@ -396,10 +407,14 @@ class SpeechBufferWorker:
                 voiced_duration = 0.0
                 silence = 0.0
                 self.detector.reset()
+                candidate_speech_at = 0.0
+                vad_activated_at = 0.0
         # A stop click may arrive mid-utterance. Preserve that speech as a final
         # job rather than silently throwing away the last words.
         duration = len(speech) * frame_seconds
         if voiced_duration >= self.config.min_speech_duration:
-            self._submit(ASRJob(np.concatenate(speech), True, self.utterance_id,
-                                time.monotonic(), voiced_duration, utterance_start,
-                                utterance_start + duration))
+            self._submit(ASRJob(
+                np.concatenate(speech), True, self.utterance_id,
+                time.monotonic(), voiced_duration, utterance_start,
+                utterance_start + duration, candidate_speech_at,
+                vad_activated_at))

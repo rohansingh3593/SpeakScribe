@@ -2,6 +2,7 @@
 
 from queue import Empty, Queue
 from threading import Event
+import time
 
 from transformers import MarianMTModel, MarianTokenizer
 
@@ -31,10 +32,18 @@ class TranslationWorker:
                     text = self.queue.get(timeout=0.1)
                 except Empty:
                     continue
+                started = time.monotonic()
                 inputs = self.tokenizer([text], return_tensors="pt", padding=True)
+                prepared = time.monotonic()
                 output = self.model.generate(**inputs)
+                inferred = time.monotonic()
                 translated = self.tokenizer.batch_decode(output, skip_special_tokens=True)[0]
                 self.signals.translation_ready.emit(translated)
+                LOGGER.debug(
+                    "[LATENCY] translation tokenize=%.3fs inference=%.3fs "
+                    "decode_emit=%.3fs total=%.3fs",
+                    prepared - started, inferred - prepared,
+                    time.monotonic() - inferred, time.monotonic() - started)
         except Exception as exc:
             LOGGER.error("Translation failed: %s", exc, exc_info=True)
             self.signals.error.emit(f"Translation: {exc}")

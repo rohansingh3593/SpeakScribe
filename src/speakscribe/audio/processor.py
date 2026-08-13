@@ -32,14 +32,18 @@ def audio_normalization_gain(audio, *, minimum_peak: float = 0.002,
 
 
 def prepare_audio_for_asr(audio, *, maximum_gain: float = 15.0,
-                          minimum_peak: float = 0.002) -> np.ndarray:
+                          minimum_peak: float = 0.002,
+                          return_gain: bool = False) -> np.ndarray | tuple[np.ndarray, float]:
+    """Prepare audio once, optionally returning the applied diagnostic gain."""
     values = to_mono(audio).astype(np.float32, copy=True)
     if values.size == 0:
-        return values
+        return (values, 1.0) if return_gain else values
     values -= np.mean(values, dtype=np.float64)
-    values *= audio_normalization_gain(
+    gain = audio_normalization_gain(
         values, minimum_peak=minimum_peak, maximum_gain=maximum_gain)
-    return np.clip(values, -1.0, 1.0).astype(np.float32, copy=False)
+    values *= gain
+    prepared = np.clip(values, -1.0, 1.0).astype(np.float32, copy=False)
+    return (prepared, gain) if return_gain else prepared
 
 
 prepare_audio = prepare_audio_for_asr

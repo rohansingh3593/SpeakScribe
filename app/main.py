@@ -34,6 +34,8 @@ from app.processing.text_processing import (
     remove_history_overlap,
 )
 
+LOGGER = get_logger("ui")
+
 
 class SpeechSignals(QObject):
     partial_text = pyqtSignal(str)
@@ -576,6 +578,10 @@ class MainWindow(QWidget):
 
     def show_mode_text(self, segment_id: int, mode_name: str, text: str,
                        final: bool, metrics: dict) -> None:
+        slot_entered = time.monotonic()
+        emitted_at = metrics.get("signal_emitted_at")
+        if emitted_at is not None:
+            metrics["result_coordination"] = max(0.0, slot_entered - emitted_at)
         state = self._ensure_segment(segment_id, metrics)
         mode_state = state["modes"][mode_name]
         if final:
@@ -590,6 +596,25 @@ class MainWindow(QWidget):
             mode_state["latency"] = metrics.get("first_partial_latency")
             mode_state["processing_started"] = None
         self._render_segment(segment_id)
+        render_finished = time.monotonic()
+        metrics["ui_render"] = render_finished - slot_entered
+        candidate_at = metrics.get("candidate_speech_at")
+        if candidate_at:
+            metrics["total_visible_latency"] = render_finished - candidate_at
+        LOGGER.debug(
+            "[LATENCY] segment=%s mode=%s final=%s vad=%.3fs buffer=%.3fs "
+            "queue=%.3fs preprocess=%.3fs inference=%.3fs text=%.3fs "
+            "language_script=%.3fs coordination=%.3fs ui=%.3fs total=%.3fs",
+            segment_id, mode_name, final,
+            metrics.get("vad_wait") or 0.0, metrics.get("audio_buffer") or 0.0,
+            metrics.get("queue_delay") or 0.0,
+            metrics.get("asr_preprocessing") or 0.0,
+            metrics.get("whisper_inference") or metrics.get("asr_time") or 0.0,
+            metrics.get("text_processing") or 0.0,
+            metrics.get("language_script_processing") or 0.0,
+            metrics.get("result_coordination") or 0.0,
+            metrics.get("ui_render") or 0.0,
+            metrics.get("total_visible_latency") or metrics.get("result_latency") or 0.0)
 
     def _render_segment(self, segment_id: int, refresh_successor: bool = True) -> None:
         state = self.segment_states[segment_id]

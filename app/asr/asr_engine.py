@@ -13,7 +13,7 @@ from faster_whisper import WhisperModel
 from psutil import Process
 
 from app.audio.audio_pipeline import (
-    ASRJob, audio_normalization_gain, audio_statistics, prepare_audio_for_asr,
+    ASRJob, audio_statistics, prepare_audio_for_asr,
 )
 from app.config.settings import AppConfig
 from app.config.settings import PerformanceMode
@@ -46,6 +46,7 @@ class WhisperEngine:
     def __init__(self, config: AppConfig, model=None):
         self.config = config
         self.model = model if model is not None else self._load_model()
+        self.last_stage_timings: dict[str, float] = {}
 
     def _load_model(self):
         started = time.monotonic()
@@ -71,6 +72,7 @@ class WhisperEngine:
         raise RuntimeError(f"Could not load Whisper model: {last_error}")
 
     def transcribe(self, job: ASRJob, context: str) -> tuple[str, str]:
+        transcription_started = time.monotonic()
         profile = self.config.profile
         # Repeated partials must be inexpensive. The selected profile is retained
         # for final correction, while live hypotheses use deterministic greedy
@@ -87,11 +89,15 @@ class WhisperEngine:
             vocabulary=self.config.vocabulary,
         )
         language = None if self.config.language_mode == "auto" else self.config.language_mode
-        prepared = prepare_audio_for_asr(job.audio)
+        preprocessing_started = time.monotonic()
+        # Preparation already computes the centered signal and normalization
+        # gain. Return that gain rather than creating a second full-size
+        # centered array solely for diagnostics on every live snapshot.
+        prepared, normalization_gain = prepare_audio_for_asr(
+            job.audio, return_gain=True)
         raw_stats = audio_statistics(job.audio)
         prepared_stats = audio_statistics(prepared)
-        normalization_gain = audio_normalization_gain(
-            job.audio - np.mean(job.audio, dtype=np.float64))
+        preprocessing_seconds = time.monotonic() - preprocessing_started
         LOGGER.debug(
             "[ASR-INPUT] "
             f"utterance={job.utterance_id} final={job.final} "
@@ -114,7 +120,11 @@ class WhisperEngine:
             _write_debug_wav(raw_path, job.audio, self.config.sample_rate)
             _write_debug_wav(prepared_path, prepared, self.config.sample_rate)
             LOGGER.debug(f"[ASR-INPUT] saved debug audio: {raw_path}, {prepared_path}")
+        inference_seconds = 0.0
+        text_processing_seconds = 0.0
+
         def decode(initial_prompt, word_bias, *, relaxed=False):
+            nonlocal inference_seconds, text_processing_seconds
             no_speech_threshold = self.config.no_speech_threshold
             log_probability_threshold = self.config.min_avg_logprob
             compression_threshold = self.config.max_compression_ratio
@@ -125,6 +135,7 @@ class WhisperEngine:
                     log_probability=log_probability_threshold,
                     compression_ratio=compression_threshold,
                 )
+            inference_started = time.monotonic()
             segments, decode_info = self.model.transcribe(
                 prepared, language=language, task="transcribe",
                 beam_size=beam_size, best_of=best_of,
@@ -159,10 +170,13 @@ class WhisperEngine:
                         f"compression={segment.compression_ratio:.2f} "
                         f"text={segment.text.strip()!r}"
                     )
+            inference_seconds += time.monotonic() - inference_started
+            text_started = time.monotonic()
             if not accepted:
                 LOGGER.debug(f"[ASR] no usable segments returned (segments={segment_count})")
             decoded = clean_text(" ".join(accepted), final=job.final)
             LOGGER.debug(f"[ASR-TEXT] accepted={len(accepted)}/{segment_count} cleaned={decoded!r}")
+            text_processing_seconds += time.monotonic() - text_started
             return decoded, decode_info
 
         text, info = decode(prompt, vocabulary_bias)
@@ -183,11 +197,20 @@ class WhisperEngine:
             if is_low_quality_text(text):
                 LOGGER.debug(f"[ASR] rejected corrupt/repetitive fallback: {text!r}")
                 text = ""
+        language_script_started = time.monotonic()
         text = apply_script_mode(text, self.config.script_mode, self.config.vocabulary)
         language_probability = float(getattr(info, "language_probability", 0.0) or 0.0)
         LOGGER.debug(f"[ASR-TEXT] post_script={text!r} detected={getattr(info, 'language', None)!r} "
                   f"probability={language_probability:.3f}")
         mode = detect_language(text, getattr(info, "language", None))
+        language_script_seconds = time.monotonic() - language_script_started
+        self.last_stage_timings = {
+            "asr_preprocessing": preprocessing_seconds,
+            "whisper_inference": inference_seconds,
+            "text_processing": text_processing_seconds,
+            "language_script_processing": language_script_seconds,
+            "asr_total": time.monotonic() - transcription_started,
+        }
         return text, mode
 
 
@@ -287,7 +310,7 @@ class ASRWorker:
 
 
 class ComparisonASRWorker:
-    """Decode live partials with FAST and final snapshots with every profile."""
+    """Decode each immutable ASR snapshot under all profiles off the GUI thread."""
 
     def __init__(self, config: AppConfig, queue: Queue, stop_event: Event, signals,
                  model_provider: WhisperModelProvider):
@@ -316,12 +339,9 @@ class ComparisonASRWorker:
                     break
                 continue
             stop_empty_since = None
-            # Progressive text is latency-sensitive.  Sending each rolling
-            # snapshot through all three models lets refinement work starve the
-            # FAST worker, particularly on CPU.  Finals still go to every mode
-            # so the combined transcript retains Balanced/Accurate refinement.
-            target_modes = PerformanceMode if job.final else (PerformanceMode.FAST,)
-            for mode in target_modes:
+            # Enqueue FAST first without removing live Balanced/Accurate
+            # refinement. Per-mode coalescing below prevents stale backlogs.
+            for mode in PerformanceMode:
                 mode_queue = queues[mode]
                 self._enqueue_mode_job(mode, mode_queue, job)
         for mode_queue in queues.values():
@@ -401,6 +421,7 @@ class ComparisonASRWorker:
                 expired = result_latency >= config.max_result_latency_seconds
                 if text and job.final and not expired:
                     self.histories[mode].append(text)
+                stage_timings = getattr(engine, "last_stage_timings", {})
                 metrics = {
                     "asr_time": elapsed,
                     "queue_delay": (max(0.0, started - job.captured_at)
@@ -413,8 +434,16 @@ class ComparisonASRWorker:
                     "memory_mb": process.memory_info().rss / 1024 ** 2,
                     "language": language, "start_time": job.audio_start_time,
                     "end_time": job.audio_end_time,
+                    "candidate_speech_at": job.candidate_speech_at,
+                    "vad_wait": (max(0.0, job.vad_activated_at - job.candidate_speech_at)
+                                 if job.candidate_speech_at > 0 and
+                                 job.vad_activated_at > 0 else None),
+                    "audio_buffer": (max(0.0, job.captured_at - job.vad_activated_at)
+                                     if job.vad_activated_at > 0 else None),
+                    **stage_timings,
                 }
                 if not expired and (text or job.final):
+                    metrics["signal_emitted_at"] = time.monotonic()
                     self.signals.mode_text.emit(
                         job.utterance_id, mode.value, text, job.final, metrics)
                 if expired:
