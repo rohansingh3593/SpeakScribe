@@ -274,6 +274,20 @@ class SpeechBufferWorker:
         self.recognition_state = recognition_state
         self.detector = EnergySpeechDetector(config)
         self.utterance_id = 0
+        self._local_utterance_id = 0
+
+    def _next_utterance_id(self, generation: int = 0) -> int:
+        """Allocate an ID unique across Stop/Start and language generations.
+
+        Each SpeechBufferWorker previously restarted numbering at one. The UI
+        intentionally preserves final history across sessions, so a new
+        generation's partial could collide with an old final and the old raw
+        candidate would win rendering. Reserve six decimal digits for the
+        generation-local sequence while keeping generation-zero test IDs small.
+        """
+        self._local_utterance_id += 1
+        self.utterance_id = generation * 1_000_000 + self._local_utterance_id
+        return self.utterance_id
 
     def _submit(self, job: ASRJob) -> None:
         diagnostics = pipeline_diagnostics()
@@ -391,7 +405,6 @@ class SpeechBufferWorker:
                 candidate_speech_at = vad_activated_at = 0.0
                 self.detector.reset()
                 recognition = current
-                self.utterance_id += 1
                 LOGGER.info("[LANG-SWITCH] old utterance closed; rolling audio and VAD reset "
                             "generation=%s", current.generation)
             # Classify the boundary frame only after reset and retain it as the
@@ -432,7 +445,7 @@ class SpeechBufferWorker:
             if not speech:
                 pre.append(frame)
                 if active:
-                    self.utterance_id += 1
+                    self._next_utterance_id(recognition.generation if recognition else 0)
                     utterance_start = max(0.0, stream_seconds - len(pre) * frame_seconds)
                     speech.extend(pre)
                     voiced_duration = self.config.speech_start_frames * frame_seconds

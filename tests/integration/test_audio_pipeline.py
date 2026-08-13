@@ -184,6 +184,19 @@ def test_comparison_backpressure_replaces_stale_final_without_blocking_vad():
     assert output.get_nowait() is newest
 
 
+def test_utterance_ids_are_namespaced_by_generation_to_preserve_ui_history():
+    worker = SpeechBufferWorker(AppConfig(), Queue(), Queue(), Event())
+    first_session = worker._next_utterance_id(3)
+    second_utterance = worker._next_utterance_id(3)
+    next_session_worker = SpeechBufferWorker(AppConfig(), Queue(), Queue(), Event())
+    restarted = next_session_worker._next_utterance_id(4)
+
+    assert first_session == 3_000_001
+    assert second_utterance == 3_000_002
+    assert restarted == 4_000_001
+    assert len({first_session, second_utterance, restarted}) == 3
+
+
 def test_audio_preparation_can_report_gain_without_changing_samples():
     audio = np.linspace(-0.03, 0.04, 1600, dtype=np.float32)
 

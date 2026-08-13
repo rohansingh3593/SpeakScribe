@@ -855,6 +855,12 @@ class MainWindow(QWidget):
             segment_id, mode_name, metrics.get("raw_text"), metrics.get("processed_text"),
             state.get("display_text"), metrics.get("detected_language"),
             metrics.get("detected_script"), metrics.get("requested_script"), script_valid)
+        if text and state.get("display_text") != text and not final:
+            LOGGER.warning(
+                "[UI CANDIDATE MISMATCH] segment=%s incoming_mode=%s incoming=%r "
+                "selected_source=%s selected=%r; preserving newest partial in Processing",
+                segment_id, mode_name, text, state.get("display_source"),
+                state.get("display_text"))
         LOGGER.debug(
             "[LATENCY] segment=%s mode=%s final=%s vad=%.3fs buffer=%.3fs "
             "queue=%.3fs preprocess=%.3fs inference=%.3fs text=%.3fs "
@@ -1050,7 +1056,11 @@ class MainWindow(QWidget):
                            compare_live_partials=False,
                            max_audio_queue=100,
                            max_asr_queue=1,
-                           max_utterance_seconds=15.0)
+                           # Supplied Hindi traces showed uninterrupted audio
+                           # being stopped at 13.59s, before the old 15s forced
+                           # boundary, so no final could exist. Bound continuous
+                           # live chunks while paragraphing keeps prose natural.
+                           max_utterance_seconds=8.0)
         config.diagnostics_enabled = DEBUG_DIAGNOSTICS
         self.performance_label.setText("FAST live transcription — refinements deferred")
         self._set_status("Starting…")
