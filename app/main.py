@@ -276,6 +276,8 @@ class MainWindow(QWidget):
         self.record_started_at: float | None = None
         self.last_processing_refresh = 0.0
         self._meter_phase = 0
+        self._ui_session_epoch = 0
+        self._processing_seen: set[int] = set()
         self.live_result_deadline = AppConfig().max_result_latency_seconds
         self.record_timer = QTimer(self)
         self.record_timer.setInterval(250)
@@ -763,6 +765,23 @@ class MainWindow(QWidget):
 
     def show_mode_text(self, segment_id: int, mode_name: str, text: str,
                        final: bool, metrics: dict) -> None:
+        # Very short utterances can finalize before FAST has produced a rolling
+        # partial (the final correctly supersedes a queued obsolete snapshot).
+        # Preserve the user-facing lifecycle: show the accepted final candidate
+        # in Processing briefly, then commit that same ID/text to Final. This is
+        # presentation ordering only; it does not run another recognizer.
+        if final and segment_id not in self._processing_seen and not metrics.get(
+                "processing_previewed"):
+            preview_metrics = dict(metrics)
+            preview_metrics.update(processing_previewed=True, final_preview=True)
+            self.show_mode_text(segment_id, mode_name, text, False, preview_metrics)
+            epoch = self._ui_session_epoch
+            QTimer.singleShot(
+                250, lambda sid=segment_id, mode=mode_name, value=text,
+                data=dict(metrics), expected_epoch=epoch:
+                self._deliver_deferred_final(
+                    sid, mode, value, data, expected_epoch))
+            return
         slot_entered = time.monotonic()
         emitted_at = metrics.get("signal_emitted_at")
         if emitted_at is not None:
@@ -818,6 +837,7 @@ class MainWindow(QWidget):
                     segment_id, "FINAL", "delivered_to_final_ui", "UI",
                     action="REPLACE" if existed else "APPEND")
         else:
+            self._processing_seen.add(segment_id)
             self.live_transcript.update_partial(text, segment_id)
             self._render_processing(mode_name, metrics)
             diagnostics = pipeline_diagnostics()
@@ -875,6 +895,16 @@ class MainWindow(QWidget):
             metrics.get("result_coordination") or 0.0,
             metrics.get("ui_render") or 0.0,
             metrics.get("total_visible_latency") or metrics.get("result_latency") or 0.0)
+
+    def _deliver_deferred_final(self, segment_id: int, mode_name: str, text: str,
+                                metrics: dict, expected_epoch: int) -> None:
+        """Commit a previewed final only if its listening session is still current."""
+        if expected_epoch != self._ui_session_epoch:
+            LOGGER.info("[DISCARD] stage=UI reason=stale_deferred_final segment=%s",
+                        segment_id)
+            return
+        metrics["processing_previewed"] = True
+        self.show_mode_text(segment_id, mode_name, text, True, metrics)
 
     def _remove_segment(self, segment_id: int) -> None:
         """Remove a rejected live row and keep the stable row index map valid."""
@@ -1030,6 +1060,8 @@ class MainWindow(QWidget):
         self._render_segment(segment_id)
 
     def start_listening(self) -> None:
+        self._ui_session_epoch += 1
+        self._processing_seen.clear()
         self.ever_started = True
         # Retain the ID-aware scheduler, but interactive snapshots use its
         # dedicated FAST lane. Multi-profile fan-out is evaluation-only.
@@ -1086,6 +1118,8 @@ class MainWindow(QWidget):
         self.record_timer.start()
 
     def stop_listening(self) -> None:
+        self._ui_session_epoch += 1
+        self._processing_seen.clear()
         self._set_status("Stopping…")
         # Stop invalidates the live generation and returns without joining ASR.
         self.controller.stop()
