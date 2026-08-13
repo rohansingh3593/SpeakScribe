@@ -431,14 +431,16 @@ class ComparisonASRWorker:
         # routed through FAST to avoid starving the active capture session on
         # CPU-only systems, while partial snapshots can still be compared across
         # modes when the comparison worker is active.
-        queues = {mode: Queue(maxsize=2) for mode in PerformanceMode}
+        active_modes = (tuple(PerformanceMode) if self.config.compare_live_partials
+                        else (PerformanceMode.FAST,))
+        queues = {mode: Queue(maxsize=2) for mode in active_modes}
         workers = [Thread(target=self._run_mode,
                           args=(mode, queues[mode]),
                           name=f"asr-{mode.value}", daemon=True)
-                   for mode in PerformanceMode]
+                   for mode in active_modes]
         LOGGER.info("Live ASR scheduler active | pipeline=fast-live-v2 modes=%s "
                     "partial_queue=latest final_queue=latest",
-                    ",".join(mode.value for mode in PerformanceMode))
+                    ",".join(mode.value for mode in active_modes))
         for worker in workers:
             worker.start()
         while True:
@@ -461,7 +463,7 @@ class ComparisonASRWorker:
             if job.final:
                 self._enqueue_mode_job(PerformanceMode.FAST, queues[PerformanceMode.FAST], job)
             else:
-                for mode in PerformanceMode:
+                for mode in active_modes:
                     self._enqueue_mode_job(mode, queues[mode], job)
         for mode_queue in queues.values():
             mode_queue.put(None)

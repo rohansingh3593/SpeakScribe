@@ -118,10 +118,11 @@ class EnergySpeechDetector:
                     max(self.config.adaptive_vad_floor,
                         self.noise_floor * self.config.adaptive_vad_multiplier),
                 )
-                self.effective_silence_threshold = min(
-                    self.config.silence_threshold,
-                    self.effective_start_threshold * 0.7,
-                )
+                # Once speech has started, use the configured release gate.
+                # Deriving it from the very low adaptive start threshold made
+                # ordinary room noise (~0.0005 RMS) count as speech forever,
+                # producing forced 15-second Hindi chunks and ASR repetition.
+                self.effective_silence_threshold = self.config.silence_threshold
             else:
                 self.effective_start_threshold = self.config.speech_threshold
                 self.effective_silence_threshold = self.config.silence_threshold

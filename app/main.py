@@ -1025,13 +1025,13 @@ class MainWindow(QWidget):
 
     def start_listening(self) -> None:
         self.ever_started = True
-        run_all = True
+        # Retain the ID-aware scheduler, but interactive snapshots use its
+        # dedicated FAST lane. Multi-profile fan-out is evaluation-only.
         compare_all = True
         # Live capture must not queue minutes of immutable audio while Whisper
         # runs slower than real time. FAST uses newest-value scheduling; profile
         # comparisons belong to the prerecorded evaluation path.
-        mode = (PerformanceMode.FAST if run_all else
-                PerformanceMode(self.performance.currentText().lower()))
+        mode = PerformanceMode.FAST
         recognition_modes = {
             "Hindi / Hinglish": "hi", "Auto": "auto", "English": "en",
         }
@@ -1047,6 +1047,7 @@ class MainWindow(QWidget):
                            # Never let ASR backpressure stop VAD from draining
                            # the one shared capture stream.
                            asr_keep_latest_final=True,
+                           compare_live_partials=False,
                            max_audio_queue=100,
                            max_asr_queue=1,
                            max_utterance_seconds=15.0)
@@ -1064,7 +1065,7 @@ class MainWindow(QWidget):
         self.translation_toggle.setEnabled(False)
         self.translation.setVisible(config.translation_enabled)
         self.display_mode.setEnabled(False)
-        for update in self.controller.start_stream(config, run_all):
+        for update in self.controller.start_stream(config, compare_all):
             self._set_status(update.message)
         self._set_status("Listening")
         self.record_started_at = time.monotonic()

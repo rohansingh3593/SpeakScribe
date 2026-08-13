@@ -73,6 +73,10 @@ class AppConfig:
     # ASR pauses shorter than this remain in the same readable paragraph.
     paragraph_pause_threshold: float = 2.0
     diagnostics_enabled: bool = False
+    # Offline comparison tests may fan one partial across every profile. The
+    # interactive UI disables this: competing 8–10 second refinements delayed
+    # the FAST lane by 13–31 seconds in real Hindi session traces.
+    compare_live_partials: bool = True
     sample_rate: int = 16_000
     # Spoken transcription should use the physical microphone by default.
     # Speaker loopback remains available for transcribing system playback.

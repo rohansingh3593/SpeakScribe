@@ -120,6 +120,27 @@ def test_comparison_worker_preserves_live_partial_refinement_for_all_modes():
                for value in signals.mode_text.values)
 
 
+def test_interactive_live_worker_keeps_partial_work_on_fast_lane_only():
+    calls = []
+
+    class Provider:
+        def get(self, config):
+            return SimpleNamespace(transcribe=lambda _job, _context: (
+                calls.append(config.performance_mode) or "तेज़ परिणाम", "Hindi"))
+
+    signals = SimpleNamespace(mode_text=SignalRecorder(), mode_status=SignalRecorder(),
+                              mode_error=SignalRecorder())
+    queue = Queue()
+    queue.put(ASRJob(np.ones(3200, dtype=np.float32), False, 108, 0.0))
+    stop = Event(); stop.set()
+
+    ComparisonASRWorker(
+        AppConfig(compare_live_partials=False), queue, stop, signals, Provider()).run()
+
+    assert calls == [PerformanceMode.FAST]
+    assert {item[1] for item in signals.mode_text.values} == {"fast"}
+
+
 def test_mode_queue_final_evicts_partials_but_preserves_older_finals():
     queue = Queue(maxsize=8)
     audio = np.ones(10, dtype=np.float32)

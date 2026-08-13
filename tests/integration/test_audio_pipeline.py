@@ -42,8 +42,18 @@ def test_adaptive_detector_accepts_voice_below_fixed_threshold():
     assert not detector.classify(quiet_voice)[0]
     assert detector.classify(quiet_voice)[0]
     assert detector.effective_start_threshold < detector.config.speech_threshold
-    assert detector.classify(np.full(480, 0.0006, dtype=np.float32))[0]
-    assert detector.effective_silence_threshold < detector.config.silence_threshold
+    # A low adaptive attack threshold may start soft speech, but the release
+    # gate must still reject the persistent ~0.0005 room noise seen in the
+    # Hindi diagnostic session instead of sticking in speech for 15 seconds.
+    assert not detector.classify(np.full(480, 0.0006, dtype=np.float32))[0]
+    assert detector.effective_silence_threshold == detector.config.silence_threshold
+
+
+def test_adaptive_detector_releases_room_noise_after_normal_hindi_speech():
+    detector = EnergySpeechDetector(AppConfig(speech_start_frames=3))
+    speech = np.full(480, 0.02, dtype=np.float32)
+    assert [detector.classify(speech)[0] for _ in range(3)] == [False, False, True]
+    assert not detector.classify(np.full(480, 0.0005, dtype=np.float32))[0]
 
 
 def test_quiet_speech_is_centered_and_safely_amplified_for_whisper():
