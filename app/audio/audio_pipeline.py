@@ -29,6 +29,11 @@ class ASRJob:
     audio_end_time: float = 0.0
     candidate_speech_at: float = 0.0
     vad_activated_at: float = 0.0
+    language: str = "hi"
+    script: str = "original"
+    language_generation: int = 0
+    language_switched_at: float = 0.0
+    language_ready_at: float = 0.0
 
 
 def select_capture_device(soundcard, source: str):
@@ -247,9 +252,10 @@ class AudioCaptureWorker:
 
 class SpeechBufferWorker:
     def __init__(self, config: AppConfig, audio_queue: Queue, asr_queue: Queue,
-                 stop_event: Event):
+                 stop_event: Event, recognition_state=None):
         self.config, self.audio_queue, self.asr_queue = config, audio_queue, asr_queue
         self.stop_event = stop_event
+        self.recognition_state = recognition_state
         self.detector = EnergySpeechDetector(config)
         self.utterance_id = 0
 
@@ -298,6 +304,20 @@ class SpeechBufferWorker:
                     return
                 if pending.final:
                     self.asr_queue.put_nowait(pending)
+                    if (self.recognition_state is not None and
+                            pending.language_generation != job.language_generation):
+                        # Preserve the required old final, but put the first new
+                        # generation snapshot ahead of it. Queue.Queue has no
+                        # public front-insert operation, so perform the same
+                        # mutation as put() under its own condition lock. The
+                        # temporary one-item overflow is intentional and bounded.
+                        with self.asr_queue.not_full:
+                            self.asr_queue.queue.appendleft(job)
+                            self.asr_queue.unfinished_tasks += 1
+                            self.asr_queue.not_empty.notify()
+                        LOGGER.info("[LANG-SWITCH] prioritized generation=%s partial ahead "
+                                    "of protected old final", job.language_generation)
+                        return
                     LOGGER.debug("[QUEUE] kept queued final; dropped new partial")
                     return
                 try:
@@ -318,6 +338,8 @@ class SpeechBufferWorker:
         utterance_start = 0.0
         candidate_speech_at = 0.0
         vad_activated_at = 0.0
+        recognition = (self.recognition_state.snapshot()
+                       if self.recognition_state is not None else None)
         while not self.stop_event.is_set() or not self.audio_queue.empty():
             try:
                 frame = self.audio_queue.get(timeout=0.1)
@@ -326,6 +348,22 @@ class SpeechBufferWorker:
             active, rms = self.detector.classify(frame)
             stream_seconds += frame_seconds
             now = time.monotonic()
+            current = (self.recognition_state.snapshot()
+                       if self.recognition_state is not None else recognition)
+            if (recognition is not None and
+                    current.generation != recognition.generation):
+                # A switch is a hard utterance/audio boundary.  Captured old-language
+                # audio is deliberately not reused as new-language pre-roll.
+                speech.clear()
+                pre.clear()
+                voiced_duration = silence = 0.0
+                candidate_speech_at = vad_activated_at = 0.0
+                self.detector.reset()
+                recognition = current
+                self.utterance_id += 1
+                LOGGER.info("[LANG-SWITCH] old utterance closed; rolling audio and VAD reset "
+                            "generation=%s", current.generation)
+                continue
             if not speech and self.detector.start_frames == 1:
                 candidate_speech_at = now
             diagnostic_rms.append(rms)
@@ -379,7 +417,12 @@ class SpeechBufferWorker:
                 self._submit(ASRJob(
                     audio, False, self.utterance_id, now, voiced_duration,
                     partial_start, partial_end, candidate_speech_at,
-                    vad_activated_at))
+                    vad_activated_at,
+                    recognition.language if recognition else self.config.language_mode,
+                    recognition.script if recognition else self.config.script_mode,
+                    recognition.generation if recognition else 0,
+                    recognition.switched_at if recognition else 0.0,
+                    recognition.ready_at if recognition else 0.0))
                 last_partial = now
             ended = silence >= self.config.silence_duration
             if ended or duration >= self.config.max_utterance_seconds:
@@ -393,7 +436,12 @@ class SpeechBufferWorker:
                         audio, True, self.utterance_id, now, voiced_duration,
                         utterance_start,
                         utterance_start + len(audio) / self.config.sample_rate,
-                        candidate_speech_at, vad_activated_at))
+                        candidate_speech_at, vad_activated_at,
+                        recognition.language if recognition else self.config.language_mode,
+                        recognition.script if recognition else self.config.script_mode,
+                        recognition.generation if recognition else 0,
+                        recognition.switched_at if recognition else 0.0,
+                        recognition.ready_at if recognition else 0.0))
                     LOGGER.info(
                         "Voice captured | utterance=%s voiced=%.2fs audio=%.2fs; queued for ASR",
                         self.utterance_id, usable, len(audio) / self.config.sample_rate,
@@ -416,5 +464,9 @@ class SpeechBufferWorker:
             self._submit(ASRJob(
                 np.concatenate(speech), True, self.utterance_id,
                 time.monotonic(), voiced_duration, utterance_start,
-                utterance_start + duration, candidate_speech_at,
-                vad_activated_at))
+                utterance_start + duration, candidate_speech_at, vad_activated_at,
+                recognition.language if recognition else self.config.language_mode,
+                recognition.script if recognition else self.config.script_mode,
+                recognition.generation if recognition else 0,
+                recognition.switched_at if recognition else 0.0,
+                recognition.ready_at if recognition else 0.0))

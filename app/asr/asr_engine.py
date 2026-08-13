@@ -80,14 +80,14 @@ class WhisperEngine:
         best_of = profile.best_of if job.final else 1
         prompt = initial_prompt(
             final=job.final, sample_count=len(job.audio), sample_rate=self.config.sample_rate,
-            language_mode=self.config.language_mode, vocabulary=self.config.vocabulary,
+            language_mode=job.language, vocabulary=self.config.vocabulary,
             context=context,
         )
         vocabulary_bias = hotwords(
-            final=job.final, language_mode=self.config.language_mode,
+            final=job.final, language_mode=job.language,
             vocabulary=self.config.vocabulary,
         )
-        language = None if self.config.language_mode == "auto" else self.config.language_mode
+        language = None if job.language == "auto" else job.language
         preprocessing_started = time.monotonic()
         # Preparation already computes the centered signal and normalization
         # gain. Return that gain rather than creating a second full-size
@@ -107,7 +107,7 @@ class WhisperEngine:
             f"prepared_rms={prepared_stats['rms']:.6f} "
             f"prepared_peak={prepared_stats['peak']:.6f} gain={normalization_gain:.2f} "
             f"finite={prepared_stats['finite']} "
-            f"language={language or 'auto'} script={self.config.script_mode} "
+            f"language={language or 'auto'} script={job.script} "
             f"beam={beam_size} prompt={'yes' if prompt else 'no'} "
             f"hotwords={'yes' if vocabulary_bias else 'no'}"
         )
@@ -199,25 +199,25 @@ class WhisperEngine:
                 text = ""
         after_language = text
         after_transliteration = apply_script_mode(
-            after_language, self.config.script_mode, self.config.vocabulary)
+            after_language, job.script, self.config.vocabulary)
         text = clean_text(after_transliteration, final=job.final)
         language_script_started = time.monotonic()
         language_probability = float(getattr(info, "language_probability", 0.0) or 0.0)
-        metadata = script_metadata(text, self.config.script_mode, self.config.language_mode)
+        metadata = script_metadata(text, job.script, job.language)
         # A non-empty decode can still be unusable for Hindi (Arabic script or
         # an English hallucination). Give finalized audio one prompt-free,
         # relaxed recovery pass before declaring that no safe speech was found.
-        if (job.final and self.config.language_mode == "hi" and text and
+        if (job.final and job.language == "hi" and text and
                 not metadata["script_valid"]):
             first_raw = raw_text
             LOGGER.info("Retrying Hindi final after script/language mismatch | utterance=%s",
                         job.utterance_id)
             retry_text, retry_info, retry_raw = decode(None, None, relaxed=True)
             retry_after_script = apply_script_mode(
-                retry_text, self.config.script_mode, self.config.vocabulary)
+                retry_text, job.script, self.config.vocabulary)
             retry_text = clean_text(retry_after_script, final=True)
             retry_metadata = script_metadata(
-                retry_text, self.config.script_mode, self.config.language_mode)
+                retry_text, job.script, job.language)
             if retry_text and retry_metadata["script_valid"]:
                 text, info, raw_text, metadata = (
                     retry_text, retry_info, retry_raw, retry_metadata)
@@ -230,14 +230,14 @@ class WhisperEngine:
                 metadata["retry_raw_text"] = retry_raw
         metadata.update({
             "raw_text": raw_text, "processed_text": text,
-            "detected_language": getattr(info, "language", None) or self.config.language_mode,
+            "detected_language": getattr(info, "language", None) or job.language,
         })
         LOGGER.debug(
             "[ASR-PIPELINE] raw=%r detected_language=%r recognition=%s script_mode=%s "
             "after_language=%r after_transliteration=%r after_normalization=%r "
             "translation=%s final_candidate=%r detected_script=%s script_valid=%s",
-            raw_text, getattr(info, "language", None), self.config.language_mode,
-            self.config.script_mode, after_language, after_transliteration, text,
+            raw_text, getattr(info, "language", None), job.language,
+            job.script, after_language, after_transliteration, text,
             "enabled-downstream" if self.config.translation_enabled else "off",
             text, metadata["detected_script"], metadata["script_valid"])
         if not metadata["script_valid"]:
@@ -245,7 +245,7 @@ class WhisperEngine:
                 "Unexpected Arabic/Urdu or mismatched script detected for Hindi/Hinglish "
                 "segment | utterance=%s raw=%r detected=%s requested=%s",
                 job.utterance_id, raw_text, metadata["detected_script"],
-                self.config.script_mode)
+                job.script)
         LOGGER.debug(f"[ASR-TEXT] post_script={text!r} detected={getattr(info, 'language', None)!r} "
                   f"probability={language_probability:.3f}")
         mode = detect_language(text, getattr(info, "language", None))
@@ -300,9 +300,10 @@ class WhisperModelProvider:
 
 class ASRWorker:
     def __init__(self, config: AppConfig, queue: Queue, stop_event: Event, signals,
-                 model_provider: WhisperModelProvider):
+                 model_provider: WhisperModelProvider, recognition_state=None):
         self.config, self.queue, self.stop_event, self.signals = config, queue, stop_event, signals
         self.model_provider = model_provider
+        self.recognition_state = recognition_state
         self.history: deque[str] = deque(maxlen=config.context_sentences)
 
     def run(self) -> None:
@@ -335,6 +336,14 @@ class ASRWorker:
                 started = time.monotonic()
                 text, language, metadata = _unpack_transcription(
                     engine.transcribe(job, " ".join(self.history)))
+                stale = (self.recognition_state is not None and
+                         not self.recognition_state.is_current(job.language_generation))
+                if stale and not job.final:
+                    LOGGER.info("[LANG-SWITCH] ignored stale live result generation=%s "
+                                "current=%s utterance=%s", job.language_generation,
+                                self.recognition_state.snapshot().generation,
+                                job.utterance_id)
+                    continue
                 if not metadata.get("script_valid", True):
                     text = ""
                 elapsed = time.monotonic() - started
@@ -350,11 +359,15 @@ class ASRWorker:
                             "ASR returned no text | utterance=%s audio=%.2fs inference=%.2fs",
                             job.utterance_id, duration, elapsed)
                     continue
-                self.signals.language_changed.emit(language)
+                if not stale:
+                    self.signals.language_changed.emit(language)
                 if job.final:
-                    self.history.append(text)
-                    self.signals.final_text.emit(text)
-                    self.signals.partial_text.emit("")
+                    if not stale:
+                        self.history.append(text)
+                        self.signals.final_text.emit(text)
+                        self.signals.partial_text.emit("")
+                    elif hasattr(self.signals, "stale_final_text"):
+                        self.signals.stale_final_text.emit(text)
                     LOGGER.info("Transcription ready | utterance=%s language=%s text=%r",
                                 job.utterance_id, language, text)
                 else:
@@ -370,9 +383,10 @@ class ComparisonASRWorker:
     """Keep live capture real-time by decoding the active stream with FAST."""
 
     def __init__(self, config: AppConfig, queue: Queue, stop_event: Event, signals,
-                 model_provider: WhisperModelProvider):
+                 model_provider: WhisperModelProvider, recognition_state=None):
         self.config, self.queue, self.stop_event = config, queue, stop_event
         self.signals, self.model_provider = signals, model_provider
+        self.recognition_state = recognition_state
         self.histories = {mode: deque(maxlen=AppConfig(
             performance_mode=mode).context_sentences) for mode in PerformanceMode}
         self.first_seen: dict[tuple[int, PerformanceMode], float] = {}
@@ -470,8 +484,31 @@ class ComparisonASRWorker:
             self.signals.mode_status.emit(job.utterance_id, mode.value, "Processing")
             started = time.monotonic()
             try:
+                current = (self.recognition_state is None or
+                           self.recognition_state.is_current(job.language_generation))
+                context = " ".join(self.histories[mode]) if current else ""
+                # Context is generation-local: the first decode after a switch is
+                # always prompt-free with respect to recognized prior speech.
+                if getattr(self, "_history_generation", {}).get(mode) != job.language_generation:
+                    context = ""
                 text, language, script = _unpack_transcription(
-                    engine.transcribe(job, " ".join(self.histories[mode])))
+                    engine.transcribe(job, context))
+                current = (self.recognition_state is None or
+                           self.recognition_state.is_current(job.language_generation))
+                if not current and not job.final:
+                    LOGGER.info("[LANG-SWITCH] ignored stale live result generation=%s "
+                                "utterance=%s mode=%s", job.language_generation,
+                                job.utterance_id, mode.value)
+                    self.signals.mode_status.emit(
+                        job.utterance_id, mode.value, "Expired")
+                    continue
+                if current:
+                    if not hasattr(self, "_history_generation"):
+                        self._history_generation = {}
+                    if self._history_generation.get(mode) != job.language_generation:
+                        self.histories[mode].clear()
+                        self._history_generation[mode] = job.language_generation
+                        self.latest_partials.clear()
                 partial_key = (job.utterance_id, mode)
                 recovered_from_partial = False
                 if not job.final and text and script.get("script_valid", True):
@@ -497,7 +534,7 @@ class ComparisonASRWorker:
                     text and job.final and script_valid and self.histories[mode] and
                     clean_text(self.histories[mode][-1]).casefold() ==
                     clean_text(text).casefold())
-                if text and job.final and script_valid and not duplicate:
+                if text and job.final and script_valid and not duplicate and current:
                     self.histories[mode].append(text)
                 stage_timings = getattr(engine, "last_stage_timings", {})
                 metrics = {
@@ -525,6 +562,15 @@ class ComparisonASRWorker:
                     **stage_timings,
                     **script,
                 }
+                if job.language_switched_at:
+                    metrics.update({
+                        "language_generation": job.language_generation,
+                        "language_switch_requested_at": job.language_switched_at,
+                        "language_ready_at": job.language_ready_at,
+                        "first_new_speech_at": job.candidate_speech_at or None,
+                        "first_fast_result_at": (time.monotonic()
+                                                 if mode is PerformanceMode.FAST else None),
+                    })
                 # The latency target is diagnostic, not a destructive timeout.
                 # Slow CPU inference cannot be cancelled safely, so throwing its
                 # eventual transcript away leaves a permanent blank row after
