@@ -1,5 +1,21 @@
 # 🎙️ Real-Time Hindi, English & Hinglish Speech-to-Text
 
+## UI templates
+
+The default launcher shows the clean Final Transcript without the live
+Processing panel:
+
+```bash
+python -m main
+```
+
+The complete Processing → Final live-update interface is retained as an
+example template:
+
+```bash
+python -m examples.live_update_main
+```
+
 > **Implementation note:** the repository originally contained this design document only.
 > The current implementation follows it with independent capture, segmentation, ASR,
 > optional translation, and GUI stages. Configuration lives in `app/config/settings.py`; start with

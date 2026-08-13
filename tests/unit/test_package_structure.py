@@ -27,7 +27,8 @@ def test_implementations_are_not_duplicated_in_repository_root():
         "logger.py", "text_processing.py", "translation.py",
     }
     assert not any((root / name).exists() for name in moved)
-    assert (root / "main.py").read_text(encoding="utf-8").count("from app.main import main") == 1
+    assert (root / "main.py").read_text(encoding="utf-8").count(
+        "from app.final_only_main import main") == 1
 
 
 def test_evaluation_fixture_paths_remain_repository_relative():

@@ -93,7 +93,7 @@ class RecordingPanel(QWidget):
         self.btn_record_clear = QPushButton("🧹")
         self.btn_lang_eng = QPushButton("Eng")
         self.btn_lang_hin = QPushButton("Hin")
-        self.btn_lang_hing = QPushButton("Hing")
+        self.btn_lang_hing = QPushButton("Auto")
         for action, language in (
                 (self.btn_record_start, self.btn_lang_eng),
                 (self.btn_record_stop, self.btn_lang_hin),

@@ -415,8 +415,8 @@ class MainWindow(QWidget):
         transcript_layout = QVBoxLayout(transcript_panel)
         transcript_layout.setContentsMargins(0, 0, 0, 0)
         transcript_layout.setSpacing(4)
-        processing_title = QLabel("PROCESSING — LIVE UPDATE")
-        processing_title.setStyleSheet("color:#5aa9ff;font-weight:bold;padding:5px")
+        self.processing_title = QLabel("PROCESSING — LIVE UPDATE")
+        self.processing_title.setStyleSheet("color:#5aa9ff;font-weight:bold;padding:5px")
         self.processing_output = QPlainTextEdit()
         self.processing_output.setReadOnly(True)
         self.processing_output.setMaximumHeight(125)
@@ -457,7 +457,7 @@ class MainWindow(QWidget):
         self.record_output.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        transcript_layout.addWidget(processing_title)
+        transcript_layout.addWidget(self.processing_title)
         transcript_layout.addWidget(self.processing_output)
         transcript_layout.addLayout(final_header)
         transcript_layout.addWidget(self.record_output, stretch=1)
