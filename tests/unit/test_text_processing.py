@@ -125,6 +125,12 @@ def test_conservative_cleanup():
     )
 
 
+def test_cleanup_restores_boundary_aware_technical_spellings():
+    assert clean_text(
+        "deploy java script with git hub actions to post gres q l", final=True
+    ) == "Deploy JavaScript with GitHub Actions to PostgreSQL."
+
+
 def test_cleanup_preserves_intentional_hindi_and_english_repetition():
     assert clean_text("मैं मैं पहले रिपोर्ट देखूँगा", final=True) == (
         "मैं मैं पहले रिपोर्ट देखूँगा।")

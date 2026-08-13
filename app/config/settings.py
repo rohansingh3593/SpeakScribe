@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 import os
 
+from app.config.technical_vocabulary import DEFAULT_TECHNICAL_VOCABULARY
+
 
 class PerformanceMode(str, Enum):
     FAST = "fast"
@@ -53,7 +55,7 @@ PERFORMANCE_PROFILES = {
 PROFILES = PERFORMANCE_PROFILES
 
 
-DEFAULT_VOCABULARY = (
+CORE_VOCABULARY = (
     "Python", "PyQt", "PyQt6", "SQLAlchemy", "Alembic", "FastAPI",
     "Pydantic", "Jenkins", "Docker", "Kubernetes", "Git", "GitHub",
     "GitLab", "Jira", "API", "REST API", "pull request", "PR", "commit",
@@ -62,6 +64,8 @@ DEFAULT_VOCABULARY = (
     "image", "verify", "endpoint", "response", "save", "service",
     "model", "result", "CPU", "RAM", "CI",
 )
+DEFAULT_VOCABULARY = tuple(dict.fromkeys(
+    (*CORE_VOCABULARY, *DEFAULT_TECHNICAL_VOCABULARY)))
 
 
 @dataclass
