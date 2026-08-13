@@ -1,6 +1,7 @@
 from queue import Queue
-from threading import Event
+from threading import Event, Thread
 from types import SimpleNamespace
+import time
 import warnings
 
 import numpy as np
@@ -42,8 +43,18 @@ def test_adaptive_detector_accepts_voice_below_fixed_threshold():
     assert not detector.classify(quiet_voice)[0]
     assert detector.classify(quiet_voice)[0]
     assert detector.effective_start_threshold < detector.config.speech_threshold
-    assert detector.classify(np.full(480, 0.0006, dtype=np.float32))[0]
-    assert detector.effective_silence_threshold < detector.config.silence_threshold
+    # A low adaptive attack threshold may start soft speech, but the release
+    # gate must still reject the persistent ~0.0005 room noise seen in the
+    # Hindi diagnostic session instead of sticking in speech for 15 seconds.
+    assert not detector.classify(np.full(480, 0.0006, dtype=np.float32))[0]
+    assert detector.effective_silence_threshold == detector.config.silence_threshold
+
+
+def test_adaptive_detector_releases_room_noise_after_normal_hindi_speech():
+    detector = EnergySpeechDetector(AppConfig(speech_start_frames=3))
+    speech = np.full(480, 0.02, dtype=np.float32)
+    assert [detector.classify(speech)[0] for _ in range(3)] == [False, False, True]
+    assert not detector.classify(np.full(480, 0.0005, dtype=np.float32))[0]
 
 
 def test_quiet_speech_is_centered_and_safely_amplified_for_whisper():
@@ -150,9 +161,11 @@ def test_capture_source_matches_legacy_speaker_loopback_and_physical_microphone(
         microphone, "microphone:Microphone", 1)
 
 
-def test_default_capture_settings_use_physical_microphone_for_spoken_transcription():
+def test_default_capture_settings_use_system_audio_for_english_transcription():
     config = AppConfig()
-    assert config.capture_source == "microphone"
+    assert config.capture_source == "loopback"
+    assert config.language_mode == "en"
+    assert config.script_mode == "original"
     assert config.capture_sample_rate == 16_000
     assert config.capture_warmup_blocks == 3
     assert config.capture_warmup_ms == 100
@@ -172,6 +185,36 @@ def test_comparison_backpressure_replaces_stale_final_without_blocking_vad():
     worker._submit(newest)
 
     assert output.get_nowait() is newest
+
+
+def test_live_policy_never_replaces_queued_final_with_newer_final():
+    output = Queue(maxsize=1)
+    old = ASRJob(np.ones(10, dtype=np.float32), True, 11, 0.0)
+    newest = ASRJob(np.ones(10, dtype=np.float32), True, 12, 0.0)
+    output.put(old)
+    stop = Event()
+    worker = SpeechBufferWorker(
+        AppConfig(asr_keep_latest_final=False), Queue(), output, stop)
+
+    submitter = Thread(target=worker._submit, args=(newest,))
+    submitter.start()
+    time.sleep(0.02)
+    assert output.get_nowait() is old
+    submitter.join(1)
+    assert output.get_nowait() is newest
+
+
+def test_utterance_ids_are_namespaced_by_generation_to_preserve_ui_history():
+    worker = SpeechBufferWorker(AppConfig(), Queue(), Queue(), Event())
+    first_session = worker._next_utterance_id(3)
+    second_utterance = worker._next_utterance_id(3)
+    next_session_worker = SpeechBufferWorker(AppConfig(), Queue(), Queue(), Event())
+    restarted = next_session_worker._next_utterance_id(4)
+
+    assert first_session == 3_000_001
+    assert second_utterance == 3_000_002
+    assert restarted == 4_000_001
+    assert len({first_session, second_utterance, restarted}) == 3
 
 
 def test_audio_preparation_can_report_gain_without_changing_samples():

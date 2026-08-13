@@ -26,9 +26,14 @@ from app.asr.session_transition import LiveSessionBoundary
 from app.audio.audio_pipeline import AudioCaptureWorker, SpeechBufferWorker
 from app.config.settings import AppConfig, PerformanceMode
 from app.utils.logger import (
-    configure_logging, emit_status, get_logger, get_output_path, log_exception, log_print,
+    configure_logging, emit_status, get_log_session, get_logger, get_output_path,
+    log_exception, log_print,
+)
+from app.utils.pipeline_diagnostics import (
+    configure_pipeline_diagnostics, pipeline_diagnostics,
 )
 from app.processing.translation import TranslationWorker
+from app.processing.live_transcript import LiveTranscriptModel
 from app.processing.text_processing import (
     best_refinement_candidate, comparison_agreement_percentages, comparison_diff_html,
     compose_live_transcript, descending_segment_row, format_processing_duration,
@@ -37,6 +42,7 @@ from app.processing.text_processing import (
 )
 
 LOGGER = get_logger("ui")
+DEBUG_DIAGNOSTICS = False
 
 
 class SpeechSignals(QObject):
@@ -94,6 +100,11 @@ class SpeechController:
         if self.running:
             return
         self.running = True
+        log_session = get_log_session()
+        diagnostic_root = ((log_session.directory /
+                            time.strftime("listening_%Y-%m-%d_%H-%M-%S"))
+                           if log_session else Path("logs") / "pipeline")
+        configure_pipeline_diagnostics(diagnostic_root, config.diagnostics_enabled)
         self.state = "LISTENING"
         self.stop_event = Event()
         audio_queue = Queue(maxsize=config.max_audio_queue)
@@ -212,6 +223,7 @@ class SpeechController:
             **stopped.__dict__, "state_ready_at": time.monotonic(),
         }
         self.last_stop_metrics = metrics
+        pipeline_diagnostics().close("session_stop")
         LOGGER.info(
             "[STOP] capture-disabled=%.1fms generation-invalid=%.1fms "
             "queues-cleared=%.1fms ready=%.1fms jobs-cleared=%s generation=%s",
@@ -252,6 +264,10 @@ class MainWindow(QWidget):
         self.controller = SpeechController(self.signals)
         self.final_history: list[str] = []
         self.current_partial = ""
+        self.live_transcript = LiveTranscriptModel(AppConfig().paragraph_pause_threshold)
+        self._legacy_utterance_id = 0
+        self.auto_scroll_enabled = True
+        self._programmatic_scroll = False
         self.mode_states = {mode.value: {"finals": [], "partial": "", "metrics": {}}
                             for mode in PerformanceMode}
         self.selected_mode = PerformanceMode.BALANCED
@@ -259,6 +275,9 @@ class MainWindow(QWidget):
         self.ever_started = False
         self.record_started_at: float | None = None
         self.last_processing_refresh = 0.0
+        self._meter_phase = 0
+        self._ui_session_epoch = 0
+        self._processing_seen: set[int] = set()
         self.live_result_deadline = AppConfig().max_result_latency_seconds
         self.record_timer = QTimer(self)
         self.record_timer.setInterval(250)
@@ -288,12 +307,15 @@ class MainWindow(QWidget):
             "Progressive replaces one live output as Fast, Balanced, then Accurate complete")
         self.script = QComboBox()
         self.script.addItems(["Original", "Devanagari", "Latin / Roman"])
+        self.script.setCurrentText("Original")
         self.script.setMinimumWidth(125)
         self.language_mode = QComboBox()
         self.language_mode.addItems(["Hindi / Hinglish", "Auto", "English"])
+        self.language_mode.setCurrentText("English")
         self.language_mode.setMinimumWidth(155)
         self.capture_source = QComboBox()
         self.capture_source.addItems(["Microphone", "System audio (legacy)"])
+        self.capture_source.setCurrentText("System audio (legacy)")
         self.capture_source.setMinimumWidth(200)
         self.translation_toggle = QCheckBox("Translation")
         self.settings_bar = QWidget()
@@ -357,7 +379,7 @@ class MainWindow(QWidget):
         self.btn_record_clear = QPushButton("🧹")
         self.btn_lang_eng = QPushButton("Eng")
         self.btn_lang_hin = QPushButton("Hin")
-        self.btn_lang_hing = QPushButton("Hing")
+        self.btn_lang_hing = QPushButton("Auto")
         self.btn_copy_transcript = QPushButton("📋 Copy")
         self.btn_record_start.setToolTip("Start live transcription")
         self.btn_record_stop.setToolTip("Stop live transcription")
@@ -376,7 +398,43 @@ class MainWindow(QWidget):
         button_layout.addSpacing(6)
         button_layout.addWidget(self.btn_copy_transcript)
         button_layout.addStretch()
+        self.listening_card = QWidget()
+        self.listening_card.setObjectName("listeningCard")
+        self.listening_card.setStyleSheet(
+            "#listeningCard { background:#142b24;border:1px solid #24523d;"
+            "border-radius:6px; } #listeningCard QLabel { color:#54d66b;"
+            "font-weight:bold; }")
+        listening_layout = QHBoxLayout(self.listening_card)
+        listening_layout.setContentsMargins(10, 7, 10, 7)
+        self.listening_card_label = QLabel("Ready")
+        self.audio_level_label = QLabel("▁▁▁▁▁▁▁")
+        self.audio_level_label.setAccessibleName("Audio level indicator")
+        listening_layout.addWidget(self.listening_card_label)
+        listening_layout.addStretch()
+        listening_layout.addWidget(self.audio_level_label)
+        button_layout.addWidget(self.listening_card)
 
+        transcript_panel = QWidget()
+        transcript_layout = QVBoxLayout(transcript_panel)
+        transcript_layout.setContentsMargins(0, 0, 0, 0)
+        transcript_layout.setSpacing(4)
+        self.processing_title = QLabel("PROCESSING — LIVE UPDATE")
+        self.processing_title.setStyleSheet("color:#5aa9ff;font-weight:bold;padding:5px")
+        self.processing_output = QPlainTextEdit()
+        self.processing_output.setReadOnly(True)
+        self.processing_output.setMaximumHeight(125)
+        self.processing_output.setPlaceholderText("Listening for live speech…")
+        self.processing_output.setStyleSheet(
+            "color:#e8f2ff;background:#172231;border:1px solid #29466d;padding:7px")
+        final_header = QHBoxLayout()
+        final_title = QLabel("FINAL TRANSCRIPT")
+        final_title.setStyleSheet("color:#54d66b;font-weight:bold;padding:5px")
+        self.jump_to_latest = QPushButton("↓ Jump to latest")
+        self.jump_to_latest.hide()
+        self.jump_to_latest.clicked.connect(self._jump_to_latest)
+        final_header.addWidget(final_title)
+        final_header.addStretch()
+        final_header.addWidget(self.jump_to_latest)
         self.record_output = QPlainTextEdit()
         self.transcription = self.record_output  # compatibility for existing callbacks
         font = QFont()
@@ -402,9 +460,36 @@ class MainWindow(QWidget):
         self.record_output.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
+        transcript_layout.addWidget(self.processing_title)
+        transcript_layout.addWidget(self.processing_output)
+        transcript_layout.addLayout(final_header)
+        transcript_layout.addWidget(self.record_output, stretch=1)
+        self.record_output.verticalScrollBar().valueChanged.connect(
+            self._final_scroll_changed)
+
         top_row.addLayout(button_layout, stretch=1)
-        top_row.addWidget(self.record_output, stretch=5)
+        top_row.addWidget(transcript_panel, stretch=5)
         outer_layout.addLayout(top_row)
+
+        self.live_status_bar = QWidget()
+        self.live_status_bar.setObjectName("liveStatusBar")
+        self.live_status_bar.setStyleSheet(
+            "#liveStatusBar { background:#171c23;border-top:1px solid #343b46; } "
+            "#liveStatusBar QLabel { color:#cbd2dc;padding:2px 10px; }")
+        status_layout = QHBoxLayout(self.live_status_bar)
+        status_layout.setContentsMargins(5, 4, 5, 4)
+        status_layout.setSpacing(0)
+        self.live_state_label = QLabel("● Status: Ready")
+        self.live_mode_label = QLabel("▰ Mode: Balanced")
+        self.live_words_label = QLabel("Words: 0")
+        self.live_characters_label = QLabel("Characters: 0")
+        for index, label in enumerate((self.live_state_label, self.live_mode_label,
+                                       self.live_words_label,
+                                       self.live_characters_label)):
+            if index:
+                label.setStyleSheet("border-left:1px solid #343b46")
+            status_layout.addWidget(label, stretch=1)
+        outer_layout.addWidget(self.live_status_bar)
 
         self.comparison_panel = QWidget()
         comparison_layout = QVBoxLayout(self.comparison_panel)
@@ -461,7 +546,6 @@ class MainWindow(QWidget):
         comparison_layout.addLayout(decision)
         top_row.addWidget(self.comparison_panel, stretch=5)
         self.comparison_panel.hide()
-        self.record_output.hide()
         self.select_mode(PerformanceMode.BALANCED, persist=False)
 
         self.segment_table = QTableWidget(0, 1)
@@ -476,6 +560,7 @@ class MainWindow(QWidget):
         self.segment_rows: dict[int, int] = {}
         self.segment_states: dict[int, dict] = {}
         top_row.addWidget(self.segment_table, stretch=5)
+        self.segment_table.hide()  # retained as a diagnostic model, not transcript UI
 
         self.record_move_bar = QWidget()
         move_layout = QHBoxLayout(self.record_move_bar)
@@ -516,7 +601,8 @@ class MainWindow(QWidget):
         script = self.script.currentText().lower()
         script = "latin" if script == "latin / roman" else script
         self.current_partial = ""
-        self._render_live_text()
+        self.live_transcript.clear_processing()
+        self._render_processing()
         self.controller.switch_recognition_language(
             modes[self.language_mode.currentText()], script)
 
@@ -530,6 +616,12 @@ class MainWindow(QWidget):
             return
         self.record_timer_label.setText(format_recording_time(
             time.monotonic() - self.record_started_at))
+        if self.controller.running:
+            # Reuse the existing 250 ms timer: no extra animation thread or
+            # high-frequency paint work competes with capture/ASR.
+            frames = ("▁▃▆▄▂▅▃", "▂▅▃▇▄▂▆", "▃▆▂▅▇▃▁", "▁▄▇▃▅▂▄")
+            self._meter_phase = (self._meter_phase + 1) % len(frames)
+            self.audio_level_label.setText(frames[self._meter_phase])
         now = time.monotonic()
         if now - self.last_processing_refresh >= 1.0:
             self.last_processing_refresh = now
@@ -543,16 +635,41 @@ class MainWindow(QWidget):
         self.signals.stale_final_text.connect(self.add_stale_final)
         self.signals.language_changed.connect(
             lambda value: self.language.setText(f"Language: {value}"))
-        self.signals.status_changed.connect(self.status.setText)
+        self.signals.status_changed.connect(self._set_status)
         self.signals.error.connect(self.show_error)
         self.signals.translation_ready.connect(self.show_translation)
         self.signals.mode_text.connect(self.show_mode_text)
         self.signals.mode_status.connect(self.show_mode_status)
         self.signals.mode_error.connect(self.show_mode_error)
 
+    def _set_status(self, value: str) -> None:
+        """Keep the window status, sidebar card, and footer in sync."""
+        self.status.setText(value)
+        normalized = value.rstrip("…. ") or "Ready"
+        lowered = normalized.casefold()
+        if "error" in lowered:
+            state, color = "Error", "#ff6174"
+        elif "stop" in lowered:
+            state, color = "Stopped", "#aeb7c4"
+        elif "process" in lowered or "switch" in lowered or "start" in lowered:
+            state, color = "Processing", "#5aa9ff"
+        elif "listen" in lowered or self.controller.running:
+            state, color = "Listening", "#54d66b"
+        else:
+            state, color = "Ready", "#aeb7c4"
+        self.listening_card_label.setText(f"{state}…" if state == "Listening" else state)
+        self.live_state_label.setText(f"● Status: {state}")
+        self.live_state_label.setStyleSheet(f"color:{color};font-weight:bold")
+        if state != "Listening":
+            self.audio_level_label.setText("▁▁▁▁▁▁▁")
+
+    def _update_transcript_statistics(self) -> None:
+        text = self.live_transcript.clean_text()
+        self.live_words_label.setText(f"Words: {len(text.split())}")
+        self.live_characters_label.setText(f"Characters: {len(text)}")
+
     def _sync_display_mode(self, *_args) -> None:
         self.comparison_panel.hide()
-        self.record_output.hide()
         self.performance_label.setText("FAST live transcription — refinements deferred")
 
     @property
@@ -597,10 +714,8 @@ class MainWindow(QWidget):
         QApplication.clipboard().setText(self.full_script())
 
     def full_script(self) -> str:
-        """Return the promoted, already de-overlapped segments chronologically."""
-        return " ".join(self.segment_states[segment_id].get("display_text", "")
-                        for segment_id in sorted(self.segment_states)
-                        if self.segment_states[segment_id].get("display_text"))
+        """Return clean finalized paragraphs, excluding live/diagnostic text."""
+        return self.live_transcript.clean_text()
 
     def use_selected_output(self) -> None:
         text = self.selected_transcript
@@ -608,7 +723,7 @@ class MainWindow(QWidget):
             QApplication.clipboard().setText(text)
             self.controller.translate(text)
             self._save_selection()
-            self.status.setText(f"Using {self.selected_mode.value.upper()} output")
+            self._set_status(f"Using {self.selected_mode.value.upper()} output")
 
     def _ensure_segment(self, segment_id: int, metrics: dict | None = None) -> dict:
         if segment_id in self.segment_states:
@@ -653,6 +768,23 @@ class MainWindow(QWidget):
 
     def show_mode_text(self, segment_id: int, mode_name: str, text: str,
                        final: bool, metrics: dict) -> None:
+        # Very short utterances can finalize before FAST has produced a rolling
+        # partial (the final correctly supersedes a queued obsolete snapshot).
+        # Preserve the user-facing lifecycle: show the accepted final candidate
+        # in Processing briefly, then commit that same ID/text to Final. This is
+        # presentation ordering only; it does not run another recognizer.
+        if final and segment_id not in self._processing_seen and not metrics.get(
+                "processing_previewed"):
+            preview_metrics = dict(metrics)
+            preview_metrics.update(processing_previewed=True, final_preview=True)
+            self.show_mode_text(segment_id, mode_name, text, False, preview_metrics)
+            epoch = self._ui_session_epoch
+            QTimer.singleShot(
+                250, lambda sid=segment_id, mode=mode_name, value=text,
+                data=dict(metrics), expected_epoch=epoch:
+                self._deliver_deferred_final(
+                    sid, mode, value, data, expected_epoch))
+            return
         slot_entered = time.monotonic()
         emitted_at = metrics.get("signal_emitted_at")
         if emitted_at is not None:
@@ -687,6 +819,40 @@ class MainWindow(QWidget):
             mode_state["latency"] = metrics.get("first_partial_latency")
             mode_state["processing_started"] = None
         self._render_segment(segment_id)
+        if final:
+            existed = segment_id in self.live_transcript._finals
+            changed = self.live_transcript.commit(
+                segment_id, state.get("display_text") or text,
+                language=metrics.get("language", ""),
+                start_time=metrics.get("start_time", 0.0),
+                end_time=metrics.get("end_time", 0.0),
+                refinement_level=mode_name)
+            self._render_processing()
+            if changed:
+                self._render_final()
+                diagnostics = pipeline_diagnostics()
+                diagnostics.stage(
+                    segment_id, "UI", view="FINAL",
+                    action="REPLACE" if existed else "APPEND",
+                    paragraph=len(self.live_transcript.paragraphs()), accepted=True,
+                    source=mode_name.upper())
+                diagnostics.terminal(
+                    segment_id, "FINAL", "delivered_to_final_ui", "UI",
+                    action="REPLACE" if existed else "APPEND")
+        else:
+            self._processing_seen.add(segment_id)
+            self.live_transcript.update_partial(text, segment_id)
+            self._render_processing(mode_name, metrics)
+            diagnostics = pipeline_diagnostics()
+            ui_latency = max(0.0, time.monotonic() -
+                             metrics.get("candidate_speech_at", time.monotonic()))
+            if text and mode_name == "fast":
+                diagnostics.first_text_seconds.append(ui_latency)
+            diagnostics.stage(
+                segment_id, "UI", view="PROCESSING", source=mode_name.upper(),
+                text_length=len(text), accepted=True,
+                signal_to_ui_ms=max(0.0, (time.monotonic() -
+                    metrics.get("signal_emitted_at", time.monotonic())) * 1000))
         render_finished = time.monotonic()
         metrics["ui_render"] = render_finished - slot_entered
         if metrics.get("language_switch_requested_at"):
@@ -712,6 +878,12 @@ class MainWindow(QWidget):
             segment_id, mode_name, metrics.get("raw_text"), metrics.get("processed_text"),
             state.get("display_text"), metrics.get("detected_language"),
             metrics.get("detected_script"), metrics.get("requested_script"), script_valid)
+        if text and state.get("display_text") != text and not final:
+            LOGGER.warning(
+                "[UI CANDIDATE MISMATCH] segment=%s incoming_mode=%s incoming=%r "
+                "selected_source=%s selected=%r; preserving newest partial in Processing",
+                segment_id, mode_name, text, state.get("display_source"),
+                state.get("display_text"))
         LOGGER.debug(
             "[LATENCY] segment=%s mode=%s final=%s vad=%.3fs buffer=%.3fs "
             "queue=%.3fs preprocess=%.3fs inference=%.3fs text=%.3fs "
@@ -726,6 +898,16 @@ class MainWindow(QWidget):
             metrics.get("result_coordination") or 0.0,
             metrics.get("ui_render") or 0.0,
             metrics.get("total_visible_latency") or metrics.get("result_latency") or 0.0)
+
+    def _deliver_deferred_final(self, segment_id: int, mode_name: str, text: str,
+                                metrics: dict, expected_epoch: int) -> None:
+        """Commit a previewed final only if its listening session is still current."""
+        if expected_epoch != self._ui_session_epoch:
+            LOGGER.info("[DISCARD] stage=UI reason=stale_deferred_final segment=%s",
+                        segment_id)
+            return
+        metrics["processing_previewed"] = True
+        self.show_mode_text(segment_id, mode_name, text, True, metrics)
 
     def _remove_segment(self, segment_id: int) -> None:
         """Remove a rejected live row and keep the stable row index map valid."""
@@ -881,14 +1063,16 @@ class MainWindow(QWidget):
         self._render_segment(segment_id)
 
     def start_listening(self) -> None:
+        self._ui_session_epoch += 1
+        self._processing_seen.clear()
         self.ever_started = True
-        run_all = True
+        # Retain the ID-aware scheduler, but interactive snapshots use its
+        # dedicated FAST lane. Multi-profile fan-out is evaluation-only.
         compare_all = True
         # Live capture must not queue minutes of immutable audio while Whisper
         # runs slower than real time. FAST uses newest-value scheduling; profile
         # comparisons belong to the prerecorded evaluation path.
-        mode = (PerformanceMode.FAST if run_all else
-                PerformanceMode(self.performance.currentText().lower()))
+        mode = PerformanceMode.FAST
         recognition_modes = {
             "Hindi / Hinglish": "hi", "Auto": "auto", "English": "en",
         }
@@ -903,12 +1087,22 @@ class MainWindow(QWidget):
                            # CPU comparison can finalize slower than capture.
                            # Never let ASR backpressure stop VAD from draining
                            # the one shared capture stream.
-                           asr_keep_latest_final=True,
+                           # Final audio is durable. Only partial snapshots may
+                           # be coalesced; replacing an older queued final is
+                           # exactly how accepted Processing text gets lost.
+                           asr_keep_latest_final=False,
+                           compare_live_partials=False,
                            max_audio_queue=100,
                            max_asr_queue=1,
-                           max_utterance_seconds=15.0)
+                           # Supplied Hindi traces showed uninterrupted audio
+                           # being stopped at 13.59s, before the old 15s forced
+                           # boundary, so no final could exist. Bound continuous
+                           # live chunks while paragraphing keeps prose natural.
+                           max_utterance_seconds=8.0)
+        config.diagnostics_enabled = DEBUG_DIAGNOSTICS
         self.performance_label.setText("FAST live transcription — refinements deferred")
-        self.status.setText("Starting…")
+        self._set_status("Starting…")
+        self.live_mode_label.setText(f"▰ Mode: {mode.value.title()}")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.performance.setEnabled(False)
@@ -919,14 +1113,17 @@ class MainWindow(QWidget):
         self.translation_toggle.setEnabled(False)
         self.translation.setVisible(config.translation_enabled)
         self.display_mode.setEnabled(False)
-        for update in self.controller.start_stream(config, run_all):
-            self.status.setText(update.message)
+        for update in self.controller.start_stream(config, compare_all):
+            self._set_status(update.message)
+        self._set_status("Listening")
         self.record_started_at = time.monotonic()
         self.record_timer_label.setText("00:00")
         self.record_timer.start()
 
     def stop_listening(self) -> None:
-        self.status.setText("Stopping…")
+        self._ui_session_epoch += 1
+        self._processing_seen.clear()
+        self._set_status("Stopping…")
         # Stop invalidates the live generation and returns without joining ASR.
         self.controller.stop()
         self._finish_stop_ui()
@@ -944,51 +1141,100 @@ class MainWindow(QWidget):
         self._sync_display_mode()
         self.record_timer.stop()
         self._update_record_timer()
+        self.live_transcript.clear_processing()
+        self.current_partial = ""
+        self._render_processing()
+        self._set_status("Ready")
 
     def add_final(self, text: str) -> None:
         started = time.monotonic()
         log_print(f"[GUI] final signal received chars={len(text)} text={text!r}")
         self.final_history.append(text)
         self.current_partial = ""
-        self._render_live_text()
+        self._legacy_utterance_id += 1
+        self.live_transcript.commit(self._legacy_utterance_id, text)
+        self.live_transcript.clear_processing()
+        self._render_processing()
+        self._render_final()
         log_print(f"[GUI] final rendered in {(time.monotonic() - started) * 1000:.1f}ms")
         self.controller.translate(text)  # display has already happened
 
     def add_stale_final(self, text: str) -> None:
         """Preserve required old speech without clearing the new live partial."""
         self.final_history.append(text)
-        self._render_live_text()
+        self._legacy_utterance_id += 1
+        self.live_transcript.commit(self._legacy_utterance_id, text)
+        self._render_final()
         self.controller.translate(text)
 
     def show_partial(self, text: str) -> None:
         started = time.monotonic()
         log_print(f"[GUI] partial signal received chars={len(text)} text={text!r}")
         self.current_partial = text
-        self._render_live_text()
+        self.live_transcript.update_partial(text)
+        self._render_processing()
         log_print(f"[GUI] partial rendered in {(time.monotonic() - started) * 1000:.1f}ms")
 
     def _render_live_text(self) -> None:
-        """Replace the active partial while retaining only stable final text."""
-        self.transcription.setPlainText(
-            compose_live_transcript(self.final_history, self.current_partial)
-        )
-        cursor = self.transcription.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-        self.transcription.setTextCursor(cursor)
-        self.transcription.ensureCursorVisible()
+        """Compatibility renderer for callers predating the split display."""
+        self._render_processing()
+        self._render_final()
+
+    def _render_processing(self, mode: str = "fast", metrics: dict | None = None) -> None:
+        """Update only the inexpensive, single live candidate widget."""
+        text = self.live_transcript.processing_text
+        self.processing_output.setPlainText(f"● {text}" if text else "")
+        confidence = (metrics or {}).get("confidence")
+        if text:
+            suffix = f" • confidence {confidence:.2f}" if confidence is not None else ""
+            self.processing_output.setToolTip(f"{mode.upper()}{suffix} • updating…")
+        else:
+            self.processing_output.setToolTip("")
+
+    def _render_final(self) -> None:
+        """Render only after a final is added/refined and respect reader position."""
+        scrollbar = self.record_output.verticalScrollBar()
+        old_value = scrollbar.value()
+        self._programmatic_scroll = True
+        self.record_output.setPlainText(self.live_transcript.clean_text())
+        if self.auto_scroll_enabled:
+            scrollbar.setValue(scrollbar.maximum())
+        else:
+            scrollbar.setValue(min(old_value, scrollbar.maximum()))
+        self._programmatic_scroll = False
+        self._update_transcript_statistics()
+
+    def _final_scroll_changed(self, value: int) -> None:
+        if self._programmatic_scroll:
+            return
+        scrollbar = self.record_output.verticalScrollBar()
+        near_bottom = scrollbar.maximum() - value <= 24
+        self.auto_scroll_enabled = near_bottom
+        self.jump_to_latest.setVisible(not near_bottom)
+
+    def _jump_to_latest(self) -> None:
+        self.auto_scroll_enabled = True
+        self._programmatic_scroll = True
+        self.record_output.verticalScrollBar().setValue(
+            self.record_output.verticalScrollBar().maximum())
+        self._programmatic_scroll = False
+        self.jump_to_latest.hide()
 
     def show_translation(self, text: str) -> None:
         self.translation.setPlainText(f"Translation: {text}")
 
     def show_error(self, message: str) -> None:
-        self.status.setText(f"Error: {message}")
+        self._set_status(f"Error: {message}")
         log_print(f"GUI error: {message}")
 
     def clear_text(self) -> None:
         self.final_history.clear()
         self.current_partial = ""
+        self.live_transcript.clear()
+        self.processing_output.clear()
         self.transcription.clear()
         self.translation.clear()
+        self._update_transcript_statistics()
         self.segment_table.setRowCount(0)
         self.segment_rows.clear()
         self.segment_states.clear()
@@ -997,7 +1243,7 @@ class MainWindow(QWidget):
             self.mode_outputs[mode].clear()
             self.mode_metrics[mode].setText(
                 "Relative accuracy n/a | First n/a | Final n/a")
-            self.show_mode_status(mode.value, "Waiting")
+            self.mode_statuses[mode].setText("● Waiting")
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt API
         if not self.ever_started:
@@ -1025,8 +1271,10 @@ def startup_status():
 
 
 def main(argv=None) -> int:
+    global DEBUG_DIAGNOSTICS
     enable()
     args, qt_args = parse_args(argv)
+    DEBUG_DIAGNOSTICS = args.debug
     configure_logging(debug=args.debug)
     statuses = startup_status()
     try:

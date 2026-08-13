@@ -120,6 +120,27 @@ def test_comparison_worker_preserves_live_partial_refinement_for_all_modes():
                for value in signals.mode_text.values)
 
 
+def test_interactive_live_worker_keeps_partial_work_on_fast_lane_only():
+    calls = []
+
+    class Provider:
+        def get(self, config):
+            return SimpleNamespace(transcribe=lambda _job, _context: (
+                calls.append(config.performance_mode) or "तेज़ परिणाम", "Hindi"))
+
+    signals = SimpleNamespace(mode_text=SignalRecorder(), mode_status=SignalRecorder(),
+                              mode_error=SignalRecorder())
+    queue = Queue()
+    queue.put(ASRJob(np.ones(3200, dtype=np.float32), False, 108, 0.0))
+    stop = Event(); stop.set()
+
+    ComparisonASRWorker(
+        AppConfig(compare_live_partials=False), queue, stop, signals, Provider()).run()
+
+    assert calls == [PerformanceMode.FAST]
+    assert {item[1] for item in signals.mode_text.values} == {"fast"}
+
+
 def test_mode_queue_final_evicts_partials_but_preserves_older_finals():
     queue = Queue(maxsize=8)
     audio = np.ones(10, dtype=np.float32)
@@ -324,7 +345,7 @@ def test_invalid_final_is_not_added_to_future_asr_context():
         "Processing", "Script mismatch"}
 
 
-def test_consecutive_identical_fast_finals_are_marked_duplicate():
+def test_consecutive_identical_fast_finals_are_preserved_as_distinct_speech():
     class Provider:
         def get(self, _config):
             return SimpleNamespace(transcribe=lambda _job, _context: (
@@ -342,8 +363,36 @@ def test_consecutive_identical_fast_finals_are_marked_duplicate():
 
     emitted = {item[0]: item for item in signals.mode_text.values}
     assert emitted[80][2] == "यह एक सही हिंदी वाक्य है।"
-    assert 81 not in emitted
-    assert any(item == (81, "fast", "Duplicate") for item in signals.mode_status.values)
+    assert emitted[81][2] == "यह एक सही हिंदी वाक्य है।"
+    assert not any(item == (81, "fast", "Duplicate") for item in signals.mode_status.values)
+
+
+def test_wrong_script_final_promotes_valid_processing_partial():
+    def transcribe(job, _context):
+        if not job.final:
+            return "आज यह सही हिंदी Processing है", "Hindi", {"script_valid": True}
+        return "آپ کو کیا کرنا ہے؟", "Hindi", {
+            "script_valid": False, "detected_script": "arabic"}
+
+    class Provider:
+        def get(self, _config):
+            return SimpleNamespace(transcribe=transcribe)
+
+    signals = SimpleNamespace(mode_text=SignalRecorder(), mode_status=SignalRecorder(),
+                              mode_error=SignalRecorder())
+    mode_queue = Queue()
+    audio = np.ones(1600, dtype=np.float32)
+    mode_queue.put(ASRJob(audio, False, 92, 0.0))
+    mode_queue.put(ASRJob(audio, True, 92, 0.0))
+    mode_queue.put(None)
+    worker = ComparisonASRWorker(
+        AppConfig(language_mode="hi"), Queue(), Event(), signals, Provider())
+
+    worker._run_mode(PerformanceMode.FAST, mode_queue)
+
+    final = [item for item in signals.mode_text.values if item[3] is True]
+    assert final[0][2] == "आज यह सही हिंदी Processing है"
+    assert final[0][4]["recovered_from_partial"] is True
 
 
 def test_whisper_raw_arabic_evidence_is_preserved_and_flagged_before_display():

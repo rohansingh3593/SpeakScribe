@@ -9,6 +9,18 @@ TECHNICAL_CANONICAL = {
     "sql alchemy": "SQLAlchemy", "sqlalchemy": "SQLAlchemy", "fast api": "FastAPI",
     "py qt six": "PyQt6", "pyqt6": "PyQt6", "github": "GitHub",
     "gitlab": "GitLab", "rest api": "REST API", "pull request": "pull request",
+    # Common acoustically split forms. These corrections are boundary-aware and
+    # only restore established technical spelling; they never translate speech.
+    "post gres q l": "PostgreSQL", "postgresql": "PostgreSQL",
+    "my s q l": "MySQL", "mysql": "MySQL", "mongo db": "MongoDB",
+    "dynamo db": "DynamoDB", "cube or netties": "Kubernetes",
+    "kubernetes": "Kubernetes", "jenkins": "Jenkins", "docker": "Docker",
+    "java script": "JavaScript", "javascript": "JavaScript",
+    "type script": "TypeScript", "typescript": "TypeScript",
+    "graph q l": "GraphQL", "graphql": "GraphQL", "open api": "OpenAPI",
+    "git hub actions": "GitHub Actions", "amazon web services": "AWS",
+    "microsoft azure": "Microsoft Azure", "pytorch": "PyTorch",
+    "tensorflow": "TensorFlow", "scikit learn": "scikit-learn",
 }
 HINGLISH_WORDS = {
     "aaj", "ab", "aur", "baad", "bad", "hai", "hain", "hoon", "hum", "kar",
