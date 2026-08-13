@@ -264,6 +264,7 @@ class MainWindow(QWidget):
         self.ever_started = False
         self.record_started_at: float | None = None
         self.last_processing_refresh = 0.0
+        self._meter_phase = 0
         self.live_result_deadline = AppConfig().max_result_latency_seconds
         self.record_timer = QTimer(self)
         self.record_timer.setInterval(250)
@@ -381,6 +382,21 @@ class MainWindow(QWidget):
         button_layout.addSpacing(6)
         button_layout.addWidget(self.btn_copy_transcript)
         button_layout.addStretch()
+        self.listening_card = QWidget()
+        self.listening_card.setObjectName("listeningCard")
+        self.listening_card.setStyleSheet(
+            "#listeningCard { background:#142b24;border:1px solid #24523d;"
+            "border-radius:6px; } #listeningCard QLabel { color:#54d66b;"
+            "font-weight:bold; }")
+        listening_layout = QHBoxLayout(self.listening_card)
+        listening_layout.setContentsMargins(10, 7, 10, 7)
+        self.listening_card_label = QLabel("Ready")
+        self.audio_level_label = QLabel("▁▁▁▁▁▁▁")
+        self.audio_level_label.setAccessibleName("Audio level indicator")
+        listening_layout.addWidget(self.listening_card_label)
+        listening_layout.addStretch()
+        listening_layout.addWidget(self.audio_level_label)
+        button_layout.addWidget(self.listening_card)
 
         transcript_panel = QWidget()
         transcript_layout = QVBoxLayout(transcript_panel)
@@ -438,6 +454,26 @@ class MainWindow(QWidget):
         top_row.addLayout(button_layout, stretch=1)
         top_row.addWidget(transcript_panel, stretch=5)
         outer_layout.addLayout(top_row)
+
+        self.live_status_bar = QWidget()
+        self.live_status_bar.setObjectName("liveStatusBar")
+        self.live_status_bar.setStyleSheet(
+            "#liveStatusBar { background:#171c23;border-top:1px solid #343b46; } "
+            "#liveStatusBar QLabel { color:#cbd2dc;padding:2px 10px; }")
+        status_layout = QHBoxLayout(self.live_status_bar)
+        status_layout.setContentsMargins(5, 4, 5, 4)
+        status_layout.setSpacing(0)
+        self.live_state_label = QLabel("● Status: Ready")
+        self.live_mode_label = QLabel("▰ Mode: Balanced")
+        self.live_words_label = QLabel("Words: 0")
+        self.live_characters_label = QLabel("Characters: 0")
+        for index, label in enumerate((self.live_state_label, self.live_mode_label,
+                                       self.live_words_label,
+                                       self.live_characters_label)):
+            if index:
+                label.setStyleSheet("border-left:1px solid #343b46")
+            status_layout.addWidget(label, stretch=1)
+        outer_layout.addWidget(self.live_status_bar)
 
         self.comparison_panel = QWidget()
         comparison_layout = QVBoxLayout(self.comparison_panel)
@@ -564,6 +600,12 @@ class MainWindow(QWidget):
             return
         self.record_timer_label.setText(format_recording_time(
             time.monotonic() - self.record_started_at))
+        if self.controller.running:
+            # Reuse the existing 250 ms timer: no extra animation thread or
+            # high-frequency paint work competes with capture/ASR.
+            frames = ("▁▃▆▄▂▅▃", "▂▅▃▇▄▂▆", "▃▆▂▅▇▃▁", "▁▄▇▃▅▂▄")
+            self._meter_phase = (self._meter_phase + 1) % len(frames)
+            self.audio_level_label.setText(frames[self._meter_phase])
         now = time.monotonic()
         if now - self.last_processing_refresh >= 1.0:
             self.last_processing_refresh = now
@@ -577,12 +619,38 @@ class MainWindow(QWidget):
         self.signals.stale_final_text.connect(self.add_stale_final)
         self.signals.language_changed.connect(
             lambda value: self.language.setText(f"Language: {value}"))
-        self.signals.status_changed.connect(self.status.setText)
+        self.signals.status_changed.connect(self._set_status)
         self.signals.error.connect(self.show_error)
         self.signals.translation_ready.connect(self.show_translation)
         self.signals.mode_text.connect(self.show_mode_text)
         self.signals.mode_status.connect(self.show_mode_status)
         self.signals.mode_error.connect(self.show_mode_error)
+
+    def _set_status(self, value: str) -> None:
+        """Keep the window status, sidebar card, and footer in sync."""
+        self.status.setText(value)
+        normalized = value.rstrip("…. ") or "Ready"
+        lowered = normalized.casefold()
+        if "error" in lowered:
+            state, color = "Error", "#ff6174"
+        elif "stop" in lowered:
+            state, color = "Stopped", "#aeb7c4"
+        elif "process" in lowered or "switch" in lowered or "start" in lowered:
+            state, color = "Processing", "#5aa9ff"
+        elif "listen" in lowered or self.controller.running:
+            state, color = "Listening", "#54d66b"
+        else:
+            state, color = "Ready", "#aeb7c4"
+        self.listening_card_label.setText(f"{state}…" if state == "Listening" else state)
+        self.live_state_label.setText(f"● Status: {state}")
+        self.live_state_label.setStyleSheet(f"color:{color};font-weight:bold")
+        if state != "Listening":
+            self.audio_level_label.setText("▁▁▁▁▁▁▁")
+
+    def _update_transcript_statistics(self) -> None:
+        text = self.live_transcript.clean_text()
+        self.live_words_label.setText(f"Words: {len(text.split())}")
+        self.live_characters_label.setText(f"Characters: {len(text)}")
 
     def _sync_display_mode(self, *_args) -> None:
         self.comparison_panel.hide()
@@ -639,7 +707,7 @@ class MainWindow(QWidget):
             QApplication.clipboard().setText(text)
             self.controller.translate(text)
             self._save_selection()
-            self.status.setText(f"Using {self.selected_mode.value.upper()} output")
+            self._set_status(f"Using {self.selected_mode.value.upper()} output")
 
     def _ensure_segment(self, segment_id: int, metrics: dict | None = None) -> dict:
         if segment_id in self.segment_states:
@@ -952,7 +1020,8 @@ class MainWindow(QWidget):
                            max_asr_queue=1,
                            max_utterance_seconds=15.0)
         self.performance_label.setText("FAST live transcription — refinements deferred")
-        self.status.setText("Starting…")
+        self._set_status("Starting…")
+        self.live_mode_label.setText(f"▰ Mode: {mode.value.title()}")
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
         self.performance.setEnabled(False)
@@ -964,13 +1033,14 @@ class MainWindow(QWidget):
         self.translation.setVisible(config.translation_enabled)
         self.display_mode.setEnabled(False)
         for update in self.controller.start_stream(config, run_all):
-            self.status.setText(update.message)
+            self._set_status(update.message)
+        self._set_status("Listening")
         self.record_started_at = time.monotonic()
         self.record_timer_label.setText("00:00")
         self.record_timer.start()
 
     def stop_listening(self) -> None:
-        self.status.setText("Stopping…")
+        self._set_status("Stopping…")
         # Stop invalidates the live generation and returns without joining ASR.
         self.controller.stop()
         self._finish_stop_ui()
@@ -991,6 +1061,7 @@ class MainWindow(QWidget):
         self.live_transcript.clear_processing()
         self.current_partial = ""
         self._render_processing()
+        self._set_status("Ready")
 
     def add_final(self, text: str) -> None:
         started = time.monotonic()
@@ -1048,6 +1119,7 @@ class MainWindow(QWidget):
         else:
             scrollbar.setValue(min(old_value, scrollbar.maximum()))
         self._programmatic_scroll = False
+        self._update_transcript_statistics()
 
     def _final_scroll_changed(self, value: int) -> None:
         if self._programmatic_scroll:
@@ -1069,7 +1141,7 @@ class MainWindow(QWidget):
         self.translation.setPlainText(f"Translation: {text}")
 
     def show_error(self, message: str) -> None:
-        self.status.setText(f"Error: {message}")
+        self._set_status(f"Error: {message}")
         log_print(f"GUI error: {message}")
 
     def clear_text(self) -> None:
@@ -1079,6 +1151,7 @@ class MainWindow(QWidget):
         self.processing_output.clear()
         self.transcription.clear()
         self.translation.clear()
+        self._update_transcript_statistics()
         self.segment_table.setRowCount(0)
         self.segment_rows.clear()
         self.segment_states.clear()
