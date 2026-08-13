@@ -30,8 +30,8 @@ class DecodeProfile:
 
 
 PERFORMANCE_PROFILES = {
-    # One multilingual model is deliberately shared by all three profiles.  A
-    # mode switch therefore changes cheap streaming/decoding knobs, not weights.
+    # FAST uses a dedicated lighter model; Balanced and Accurate share the
+    # larger model when their device and compute settings match.
     PerformanceMode.FAST: DecodeProfile(
         beam_size=2, best_of=2, temperature=0.0, partial_interval=0.25,
         min_partial_duration=0.55, rolling_window_seconds=3.0,

@@ -88,7 +88,7 @@ def test_live_worker_runs_final_audio_in_fast_mode_without_refinement_contention
     assert signals.mode_error.values == []
 
 
-def test_comparison_worker_runs_live_partials_in_fast_mode_only():
+def test_comparison_worker_preserves_live_partial_refinement_for_all_modes():
     calls = []
 
     class Provider:
@@ -108,11 +108,13 @@ def test_comparison_worker_runs_live_partials_in_fast_mode_only():
     stop.set()
     ComparisonASRWorker(AppConfig(), queue, stop, signals, Provider()).run()
 
-    assert {mode for mode, _audio in calls} == {PerformanceMode.FAST}
+    assert {mode for mode, _audio in calls} == set(PerformanceMode)
     assert all(shared is audio for _mode, shared in calls)
     assert {(value[0], value[1], value[2], value[3])
             for value in signals.mode_text.values} == {
         (8, "fast", "live words", False),
+        (8, "balanced", "live words", False),
+        (8, "accurate", "live words", False),
     }
     assert all("result_latency" in value[4] and "queue_delay" in value[4]
                for value in signals.mode_text.values)
@@ -139,16 +141,17 @@ def test_mode_queue_partial_replaces_obsolete_partials_and_preserves_finals():
     queue = Queue(maxsize=8)
     audio = np.ones(10, dtype=np.float32)
     older_final = ASRJob(audio, True, 1, 0.0)
-    stale_partial = ASRJob(audio, False, 2, 0.0)
-    newest_partial = ASRJob(audio, False, 2, 0.0)
+    obsolete_same_segment = ASRJob(audio, False, 2, 0.0)
+    obsolete_old_segment = ASRJob(audio, False, 1, 0.0)
+    newest = ASRJob(audio, False, 2, 0.0)
     queue.put(older_final)
-    queue.put(stale_partial)
+    queue.put(obsolete_same_segment)
+    queue.put(obsolete_old_segment)
 
-    ComparisonASRWorker._enqueue_mode_job(
-        PerformanceMode.FAST, queue, newest_partial)
+    ComparisonASRWorker._enqueue_mode_job(PerformanceMode.FAST, queue, newest)
 
     assert queue.get_nowait() is older_final
-    assert queue.get_nowait() is newest_partial
+    assert queue.get_nowait() is newest
     assert queue.empty()
 
 
@@ -169,7 +172,6 @@ def test_latest_final_replaces_queued_final_when_live_asr_is_behind():
 
     assert asr_queue.get_nowait() is newest
     assert asr_queue.empty()
-
 
 def test_empty_partial_returns_to_listening_instead_of_blank_partial_cell():
     class Provider:

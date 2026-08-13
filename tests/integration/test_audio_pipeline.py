@@ -172,3 +172,14 @@ def test_comparison_backpressure_replaces_stale_final_without_blocking_vad():
     worker._submit(newest)
 
     assert output.get_nowait() is newest
+
+
+def test_audio_preparation_can_report_gain_without_changing_samples():
+    audio = np.linspace(-0.03, 0.04, 1600, dtype=np.float32)
+
+    baseline = prepare_audio_for_asr(audio)
+    prepared, gain = prepare_audio_for_asr(audio, return_gain=True)
+
+    assert np.array_equal(prepared, baseline)
+    assert gain == audio_normalization_gain(
+        audio - np.mean(audio, dtype=np.float64))
