@@ -16,3 +16,4 @@ test_reports/*.xlsx
 .venv/
 venv/
 speech_env/
+examples/transcripts/*.txt

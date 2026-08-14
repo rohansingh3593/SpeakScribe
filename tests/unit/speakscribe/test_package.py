@@ -45,3 +45,17 @@ def test_existing_desktop_pipeline_consumes_shared_library_preprocessing():
     from app.audio.audio_pipeline import prepare_audio_for_asr as desktop_prepare
     from speakscribe.audio.processor import prepare_audio_for_asr as library_prepare
     assert desktop_prepare is library_prepare
+
+
+def test_pyqt_migration_template_uses_only_public_speech_api():
+    root = Path(__file__).resolve().parents[3]
+    source = (root / "examples/pyqt_library_template.py").read_text(encoding="utf-8")
+
+    assert "from speakscribe import" in source
+    assert "SpeechToText" in source
+    assert "SpeechConfig" in source
+    assert "from app." not in source
+    assert "faster_whisper" not in source
+    assert "import soundcard" not in source
+    assert "from transformers" not in source
+    assert "indic_transliteration" not in source

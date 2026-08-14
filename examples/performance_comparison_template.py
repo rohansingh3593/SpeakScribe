@@ -1,4 +1,11 @@
-"""Launch the original three-row performance-comparison UI template."""
+"""Launch the source-checkout-only three-mode application UI.
+
+This template intentionally launches ``app.main.MainWindow`` because the current
+public ``speakscribe`` package does not yet expose the application's independent
+Fast/Balanced/Accurate scheduler. It therefore works from a SpeakScribe source
+checkout, but it is not a portable installed-library example. For a PyQt consumer in
+another repository, start with ``examples/pyqt_library_template.py`` instead.
+"""
 
 import sys
 from pathlib import Path
