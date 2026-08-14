@@ -60,3 +60,9 @@ See `examples/cli_example.py`, `examples/simple_example.py`,
 `examples/tkinter_example.py`, and `examples/pyqt_recording_panel.py`. The PyQt example
 recreates the compact timer/button/transcript/move-bar panel while keeping every widget
 outside the reusable package.
+
+`examples/save_transcript.py` demonstrates persistent transcription without a GUI. It
+prints partial results as temporary processing output, but appends only non-empty final
+results to a timestamped UTF-8 file under `examples/transcripts/`. Each final is flushed
+and synchronized immediately, duplicate segment callbacks are ignored, and the
+recognizer and file are closed on normal exit or Ctrl+C.
