@@ -89,3 +89,27 @@ and `LiveTranscriptionEngine` classes; `SpeechToText` replaces those responsibil
 Keep PyQt signals because library callbacks run on a worker thread and widgets must be
 updated on Qt's GUI thread. Set `capture_source="loopback"` for computer playback or
 `capture_source="microphone"` for a physical microphone.
+
+## Performance-comparison template boundary
+
+`examples/performance_comparison_template.py` is different from the portable PyQt
+template. It launches `app.main.MainWindow` and therefore must be run from a complete
+SpeakScribe source checkout:
+
+```bash
+python -m pip install -r requirements.txt
+python examples/performance_comparison_template.py
+```
+
+It is **not currently usable from another repository through only**
+`pip install speakscribe`. The installed public package does not yet expose the mature
+application's independent Fast/Balanced/Accurate scheduler, refinement events, segment
+state, or comparison metrics. Pretending that three separately created
+`SpeechToText` objects are equivalent would silently change capture, ordering, model
+reuse, and stale-result behavior.
+
+Use `examples/pyqt_library_template.py` for a portable PyQt integration today. Keep the
+performance-comparison template as a source-checkout application until those scheduler
+contracts are extracted into the public API with their existing regression tests. Once
+that extraction is complete, this template can replace its `app.main` import with a
+public comparison-session API without losing behavior.
