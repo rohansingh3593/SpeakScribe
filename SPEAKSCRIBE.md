@@ -66,3 +66,26 @@ prints partial results as temporary processing output, but appends only non-empt
 results to a timestamped UTF-8 file under `examples/transcripts/`. Each final is flushed
 and synchronized immediately, duplicate segment callbacks are ignored, and the
 recognizer and file are closed on normal exit or Ctrl+C.
+
+For an existing PyQt project, use `examples/pyqt_library_template.py` as the migration
+template. It replaces application-owned SoundCard, queue, thread, VAD, and Whisper
+classes with `SpeechToText`; a Qt signal safely forwards the library's background
+callbacks to the GUI thread. Its language buttons rebuild the recognizer with `en`,
+`hi`, or automatic/Hinglish configuration, reject stale callbacks from older sessions,
+and save only final results.
+
+In a separate repository, install the library from a local SpeakScribe checkout (or
+from its built wheel) into that repository's virtual environment:
+
+```bash
+python -m pip install "/path/to/SpeakScribe[audio,whisper]"
+python -m pip install PyQt6
+```
+
+Then copy `examples/pyqt_library_template.py` into the consumer repository. The template
+intentionally has no direct imports of SoundCard, NumPy, Faster-Whisper, Transformers,
+or Indic transliteration. Delete the consumer's `AudioRecorder`, `WhisperTranscriber`,
+and `LiveTranscriptionEngine` classes; `SpeechToText` replaces those responsibilities.
+Keep PyQt signals because library callbacks run on a worker thread and widgets must be
+updated on Qt's GUI thread. Set `capture_source="loopback"` for computer playback or
+`capture_source="microphone"` for a physical microphone.
